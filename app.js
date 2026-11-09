@@ -6,13 +6,13 @@ const C = window.APP_CONFIG;
 const KINDS = [
   { id: 'knowledge', name: 'نقل المعرفة', day: 'الثلاثاء', mins: 15,
     hint: 'انقل ما تعلّمته في لقاء الاثنين إلى شخص من أسرتك أو زملائك. اكتب ماذا نقلت، ولمن، وكيف كانت استجابته.' },
-  { id: 'task', name: 'المهمة التطبيقية', day: 'الأربعاء', mins: 30,
-    hint: 'نفّذ المهمة التطبيقية المطلوبة هذا الأسبوع، ثم صف ما قمت به وما النتيجة وما الذي تعلّمته.' },
+  { id: 'task', name: 'مشروع الجدارة', day: 'الأربعاء', mins: 30,
+    hint: 'خطط لمشروع قيادي في بيئتك: نوعه وفكرته واحتياجاته وإجراءاته.' },
   { id: 'shadow', name: 'معايشة قائد', day: 'الخميس', mins: 15,
     hint: 'لاحظ قائدًا في أسرتك أو مدرستك أو مجتمعك. اكتب موقفًا قياديًا رأيته وماذا استفدت منه.' }
 ];
 const ROLE = { student: 'مستفيد', specialist: 'أخصائي', admin: 'مدير النظام', observer: 'الشريك الاستشاري' };
-const SUB = { pending: 'بانتظار المراجعة', approved: 'مقبولة', rejected: 'مطلوب إعادتها' };
+const SUB = { draft: 'مسودة', pending: 'بانتظار المراجعة', approved: 'مقبولة', rejected: 'مطلوب إعادتها' };
 const ATT = { present: 'حاضر', absent: 'غائب', excused: 'مستأذن' };
 const FLAG = { ok: 'منتظم', warn: 'إنذار', exclude: 'مستحق للاستبعاد' };
 const P = C.POINTS, R = C.RULES;
@@ -100,7 +100,7 @@ if (C && /^https:\/\//.test(C.SUPABASE_URL) && window.supabase) {
 const loadWeeks = async (force) => { if (force || !S.weeks.length) S.weeks = await q(sb.from('weeks').select('*').order('id')); return S.weeks; };
 const loadStaff = async () => { S.staff = await q(sb.from('profiles').select('id,full_name,role').in('role', ['specialist', 'admin']).eq('status', 'active').order('full_name')); return S.staff; };
 const loadStudents = () => q(sb.from('profiles').select('id,full_name,username,phone,school,grade,status,specialist_id').eq('role', 'student').neq('status', 'pending').order('full_name'));
-const loadSubsMeta = (sid) => { let x = sb.from('submissions').select('id,student_id,week_id,kind,status,score,created_at,reviewed_by,reviewed_at,self_rating'); if (sid) x = x.eq('student_id', sid); return q(x.range(0, 9999)); };
+const loadSubsMeta = (sid) => { let x = sb.from('submissions').select('id,student_id,week_id,kind,status,score,created_at,reviewed_by,reviewed_at,self_rating').neq('status', 'draft'); if (sid) x = x.eq('student_id', sid); return q(x.range(0, 9999)); };
 const loadAtt = (sid) => { let x = sb.from('attendance').select('week_id,student_id,status,marked_at,early,points,checkout_at,leave_penalty'); if (sid) x = x.eq('student_id', sid); return q(x.range(0, 9999)); };
 const isStaff = () => S.me && (S.me.role === 'specialist' || S.me.role === 'admin');
 const staffName = id => (S.staff.find(s => s.id === id) || {}).full_name || '';
@@ -394,6 +394,176 @@ async function studentDashboard(main, student, isSelf) {
 }
 function todayFmt(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
 
+/* ---------- كراسة الممارسات الفعالة ---------- */
+const FORMS = {
+  knowledge: { sections: [
+    { title: 'تجهيزات نقل المعرفة', fields: [
+      { id: 'date', label: 'التاريخ', type: 'date' },
+      { id: 'title', label: 'عنوان محتوى المعرفة', req: 1, ph: 'مثال: الثقة بالقدرات القيادية' },
+      { id: 'idea', label: 'الفكرة التي سيتم التأكيد عليها', type: 'area', ph: 'الفكرة الأهم التي تريد أن تبقى في ذهن من تنقل له المعرفة' },
+      { id: 'tools', label: 'الأدوات والوسائل', ph: 'مثال: ورقة وقلم، صورة، مقطع قصير' },
+      { id: 'trained', label: 'هل تم التدريب على نقل المعرفة؟ كم المدة؟', ph: 'مثال: نعم، تدربت 10 دقائق' },
+      { id: 'place', label: 'مكان نقل المعرفة', ph: 'مثال: المنزل، المدرسة، المسجد' },
+      { id: 'time', label: 'وقت نقل المعرفة', ph: 'مثال: الثلاثاء بعد العشاء' }] },
+    { title: 'تقرير نقل المعرفة', fields: [
+      { id: 'to', label: 'لمن نقلت المعرفة؟', req: 1, ph: 'مثال: أخي الأصغر، زملائي في الفصل' },
+      { id: 'dur', label: 'مدة اللقاء', ph: 'مثال: 15 دقيقة' },
+      { id: 'summary', label: 'ملخص المعرفة', type: 'area', req: 1, ph: 'ماذا شرحت؟ وكيف شرحته؟ وما المثال الذي استخدمته؟' },
+      { id: 'pos', label: 'ما الإيجابيات؟', type: 'area', ph: 'ما الذي نجح في اللقاء؟' },
+      { id: 'improve', label: 'ما التحسينات التي تحتاجها للمرة المقبلة؟', type: 'area', ph: 'ما الذي ستفعله بشكل أفضل في المرة القادمة؟' },
+      { id: 'note', label: 'ملاحظة واحدة عن اللقاء', type: 'area', ph: 'موقف أو تعليق لفت انتباهك' }] },
+    { title: 'تقييم نقل المعرفة', fields: [
+      { id: 'rate', label: 'قيّم نقلك للمعرفة من 0 إلى 10', type: 'gauge', min: 'لم يتم النقل', max: 'تم النقل بكفاءة', req: 1 }] }] },
+  shadow: { guide: true, sections: [
+    { title: 'تقريرك', fields: [
+      { id: 'date', label: 'التاريخ', type: 'date' },
+      { id: 'leader', label: 'اسم القائد', req: 1, ph: 'مثال: أ. عبدالرحمن السالم' },
+      { id: 'org', label: 'المؤسسة التي يعمل بها', ph: 'مثال: مدير مدرسة، رئيس جمعية، صاحب مشروع' },
+      { id: 'questions', label: 'الأسئلة التي طرحتها', type: 'area', ph: 'اكتب أسئلتك المرتبطة بجدارة الأسبوع، سؤالًا في كل سطر' },
+      { id: 'dur', label: 'مدة اللقاء', ph: 'مثال: 15 دقيقة' },
+      { id: 'exp', label: 'الخبرة المكتسبة من القائد', type: 'area', req: 1, ph: 'ما أهم ما تعلمته من القائد؟ وكيف ستطبقه؟' }] },
+    { title: 'تقييم معايشة القائد', fields: [
+      { id: 'rate', label: 'قيّم المعايشة من 0 إلى 10', type: 'gauge', min: 'اكتساب خبرة أقل', max: 'اكتساب خبرة أكثر', req: 1 }] },
+    { title: 'صور توثيق معايشة القائد', fields: [
+      { id: 'photos', label: 'أضف حتى 4 صور', type: 'photos', max: 4 }] }] },
+  task: { intro: 'عزيزي قائد المستقبل: بعد الاستفادة من التدريب التشاركي والممارسات الفعالة، جاء وقت إضافة أفكارك كقائد ملهم يستطيع أن يبني مشاريع قيادية. استخدم النموذج التالي في عرض مشروع جدارتك.', sections: [
+    { title: 'مشروع الجدارة', fields: [
+      { id: 'date', label: 'التاريخ', type: 'date' },
+      { id: 'type', label: 'نوع المشروع', req: 1, ph: 'مثال: مدرسي، أسري، تطوعي، مجتمعي' },
+      { id: 'idea', label: 'فكرة المشروع', type: 'area', req: 1, ph: 'اكتب فكرة مشروعك في جملتين: ماذا ستفعل؟ ولمن؟' },
+      { id: 'needs', label: 'احتياجات المشروع', type: 'list', n: 4, ph: 'احتياج (مثال: موافقة، أدوات، فريق)' },
+      { id: 'steps', label: 'إجراءات المشروع', type: 'list', n: 5, req: 1, ph: 'خطوة تنفيذية بالترتيب' },
+      { id: 'drawing', label: 'رسم صورة للفكرة (ليس بالضرورة جودة الرسم)', type: 'photos', max: 2 }] }] }
+};
+const PRACTICE_GUIDE = {
+  knowledge: { goal: 'أن تنقل ما تعلّمته في لقاء الاثنين إلى شخص آخر، فتتعمق معرفتك وتمارس دور القائد المعلّم.',
+    steps: ['اقرأ «محتوى المعرفة» لهذا الأسبوع جيدًا.', 'جهّز: اختر الفكرة الأهم، والأدوات، والمكان، والوقت.', 'انقل المعرفة لشخص من أسرتك أو زملائك في نحو 15 دقيقة.', 'اكتب تقرير النقل، وقيّم أداءك من 0 إلى 10.'],
+    tip: 'استخدم مثالًا من حياة من تنقل له المعرفة، فيفهمها أسرع.' },
+  shadow: { goal: 'أن تتعلّم من قائد حقيقي في مجتمعك كيف يمارس جدارة الأسبوع في عمله.',
+    steps: ['اختر قائدًا (مدير، معلم، رئيس جمعية، صاحب مشروع) وتواصل معه لتحديد اللقاء.', 'حضّر أسئلتك من جدارة الأسبوع.', 'قابله أو اتصل به نحو 15 دقيقة، ودوّن إجاباته.', 'اكتب التقرير، وقيّم المعايشة، وأرفق صور التوثيق بعد استئذانه.'],
+    tip: 'اسأل القائد عن موقف حقيقي مرّ به، لا عن رأي عام.' },
+  task: { goal: 'أن تحوّل جدارة الأسبوع إلى مشروع قيادي صغير تخطّط له وتنفّذه في بيئتك.',
+    steps: ['حدّد نوع المشروع: مدرسي، أو أسري، أو تطوعي، أو مجتمعي.', 'اكتب الفكرة في جملتين: ماذا ستفعل؟ ولمن؟', 'اذكر احتياجات المشروع، ثم رتّب إجراءاته خطوة بخطوة.', 'ارسم فكرتك على ورقة وصوّرها، فلا يشترط جودة الرسم.'],
+    tip: 'المشروع الصغير الذي يُنفّذ فعلًا أفضل من المشروع الكبير الذي لا يكتمل.' }
+};
+function practiceGuide(kind, open) {
+  const g = PRACTICE_GUIDE[kind]; if (!g) return '';
+  return `<details class="pg-box" ${open ? 'open' : ''}><summary>📌 ما المطلوب في هذه الممارسة؟</summary>
+    <p class="pg-goal"><b>الهدف:</b> ${h(g.goal)}</p>
+    <ol class="pg-steps">${g.steps.map(x => `<li>${h(x)}</li>`).join('')}</ol>
+    <p class="pg-tip">💡 ${h(g.tip)}</p></details>`;
+}
+const SHADOW_GUIDE = {
+  'إرشادنا': ['ارجع للمدرب عند الحاجة.', 'الاتصال بالقائد لتحديد اللقاء.', 'الحوار يتم تحضيره من الجدارة.', 'كتابة تقرير اللقاء.'],
+  'احتياجاتك': ['ورقة وقلم وجوال.', 'صياغة الأسئلة.', 'تحديد القائد.', 'مكان مناسب أو موعد اتصال.']
+};
+function knowledgeHTML(txt) {
+  const lines = String(txt || '').split('\n').map(l => l.trim()).filter(Boolean);
+  let out = '', i = 0;
+  const cells = l => l.replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+  while (i < lines.length) {
+    const l = lines[i];
+    if (l.includes('|')) {
+      const rows = []; while (i < lines.length && lines[i].includes('|')) { if (!/^\|?\s*-{3,}/.test(lines[i])) rows.push(cells(lines[i])); i++; }
+      const [head, ...body] = rows;
+      out += `<div class="scroll"><table class="kn-table"><thead><tr>${head.map(c => `<th>${h(c)}</th>`).join('')}</tr></thead><tbody>${body.map(r => `<tr>${r.map((c, j) => `<td data-label="${h(head[j] || '')}"${j === 0 ? ' class="kn-key"' : ''}>${h(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+      continue;
+    }
+    const img = l.match(/^!\[([^\]]*)\]\(([^)\s]+)\)$/);
+    if (img) {
+      const src = img[2];
+      if (src.startsWith('wb:')) out += `<img class="kn-img" data-wb="${h(src.slice(3))}" alt="${h(img[1])}">`;
+      else if (/^assets\/[\w\-/.]+$/.test(src) || /^data:image\/(png|jpe?g|webp);base64,/.test(src)) out += `<img class="kn-img" src="${h(src)}" alt="${h(img[1])}">`;
+    } else if (l.startsWith('## ')) out += `<h4>${h(l.slice(3))}</h4>`;
+    else if (l.startsWith('- ')) out += `<p class="kn-li">• ${h(l.slice(2))}</p>`;
+    else { const m = l.match(/^([^:]{2,24}):\s*(.*)$/); out += m ? `<p><b>${h(m[1])}:</b> ${h(m[2])}</p>` : `<p>${h(l)}</p>`; }
+    i++;
+  }
+  return out;
+}
+async function hydrateWorkbookImages(root) {
+  const imgs = [...(root || document).querySelectorAll('img[data-wb]:not([src])')];
+  if (!imgs.length) return;
+  try {
+    const r = await q(sb.storage.from('workbooks').createSignedUrls([...new Set(imgs.map(i => i.dataset.wb))], 3600));
+    const m = {}; (r || []).forEach(o => { if (o.signedUrl) m[o.path] = o.signedUrl; });
+    imgs.forEach(i => { if (m[i.dataset.wb]) i.src = m[i.dataset.wb]; });
+  } catch (e) { console.error(e); }
+}
+function knowledgeBox(w) {
+  if (!w.knowledge && !w.workbook_path) return '';
+  return `<details class="kn-box" open><summary>📖 أولًا: محتوى المعرفة</summary>
+    ${w.knowledge ? `<div class="kn-body">${knowledgeHTML(w.knowledge)}</div>` : ''}
+    ${w.workbook_path ? `<div class="actions"><button class="btn ghost sm" data-act="file" data-b="workbooks" data-p="${h(w.workbook_path)}">📘 كراسة الأسبوع (PDF)</button></div>` : ''}</details>`;
+}
+function shadowGuide() {
+  return `<div class="sg">${Object.entries(SHADOW_GUIDE).map(([t, items], i) => `<div class="sg-card"><h4><span>${n(i + 1)}</span>${t}</h4>${items.map(x => `<p>‹ ${h(x)}</p>`).join('')}</div>`).join('')}</div>`;
+}
+const phKey = (kind, fid) => kind + '.' + fid;
+function fieldEdit(kind, f, v) {
+  const id = `fm-${kind}-${f.id}`, lab = `<span>${h(f.label)}${f.req ? ' <b class="req">*</b>' : ''}</span>`;
+  if (f.type === 'area') return `<label class="field full">${lab}<textarea id="${id}" maxlength="2000" placeholder="${h(f.ph || '')}">${h(v || '')}</textarea></label>`;
+  if (f.type === 'date') return `<label class="field">${lab}<input type="date" id="${id}" value="${h(v || '')}"></label>`;
+  if (f.type === 'list') { const arr = Array.isArray(v) ? v : [];
+    return `<div class="field full">${lab}<div class="fm-list">${Array.from({ length: f.n }, (_, i) => `<label><span class="fm-n">${n(i + 1)}</span><input type="text" id="${id}-${i}" value="${h(arr[i] || '')}" maxlength="200" placeholder="${i === 0 ? h(f.ph || '') : ''}"></label>`).join('')}</div></div>`; }
+  if (f.type === 'gauge') return `<div class="field full">${lab}<div class="gauge">${[...Array(11).keys()].map(x => `<label><input type="radio" name="${id}" value="${x}" ${v !== undefined && v !== null && v !== '' && +v === x ? 'checked' : ''}><span>${x}</span></label>`).join('')}</div><div class="gauge-ends"><span>${h(f.min)}</span><span>${h(f.max)}</span></div></div>`;
+  if (f.type === 'photos') { const arr = PG.ph[phKey(kind, f.id)] || [];
+    return `<div class="field full">${lab}<div class="fv-photos">${arr.map((p, i) => `<div class="ph-item"><img data-path="${h(p.path)}" alt=""><button class="ph-rm" data-act="ph-rm" data-key="${phKey(kind, f.id)}" data-path="${h(p.path)}" aria-label="حذف الصورة">✕</button></div>`).join('')}</div>
+      ${arr.length < f.max ? `<input type="file" id="${id}-file" accept="image/*" multiple><span class="hint">حتى ${n(f.max)} صور، وتُصغَّر تلقائيًا.</span>` : ''}</div>`; }
+  return `<label class="field">${lab}<input type="text" id="${id}" value="${h(v || '')}" maxlength="300" placeholder="${h(f.ph || '')}"></label>`;
+}
+function formEdit(kind, data) {
+  const F = FORMS[kind]; data = data || {};
+  return (F.intro ? `<p class="fm-intro">${h(F.intro)}</p>` : '') + (F.guide ? shadowGuide() : '') +
+    F.sections.map(sec => `<fieldset class="fm-sec"><legend>${h(sec.title)}</legend><div class="fm-grid">${sec.fields.map(f => fieldEdit(kind, f, data[f.id])).join('')}</div></fieldset>`).join('');
+}
+function formView(kind, data) {
+  const F = FORMS[kind]; if (!F || !data) return '';
+  return F.sections.map(sec => {
+    const rows = sec.fields.map(f => { const v = data[f.id];
+      if (v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length)) return '';
+      if (f.type === 'list') return `<div class="fv-row full"><span>${h(f.label)}</span><ol>${v.map(x => `<li>${h(x)}</li>`).join('')}</ol></div>`;
+      if (f.type === 'gauge') return `<div class="fv-row full"><span>${h(f.label)}</span><div class="fv-gauge"><span class="meter"><i style="width:${+v * 10}%"></i></span><b>${n(+v)} من 10</b></div></div>`;
+      if (f.type === 'photos') return `<div class="fv-row full"><span>${h(f.label)}</span><div class="fv-photos">${v.map(p => `<button class="ph-view" data-act="ph-open"><img data-path="${h(p.path)}" alt=""></button>`).join('')}</div></div>`;
+      if (f.type === 'date') return `<div class="fv-row"><span>${h(f.label)}</span><p>${fmtDate(v)}</p></div>`;
+      return `<div class="fv-row ${f.type === 'area' ? 'full' : ''}"><span>${h(f.label)}</span><p>${h(v)}</p></div>`; }).join('');
+    return rows ? `<div class="fv-sec"><h4>${h(sec.title)}</h4><div class="fv-grid">${rows}</div></div>` : '';
+  }).join('');
+}
+function formCollect(kind) {
+  const F = FORMS[kind], data = {}, missing = [];
+  F.sections.forEach(sec => sec.fields.forEach(f => {
+    const id = `fm-${kind}-${f.id}`; let v;
+    if (f.type === 'list') { v = Array.from({ length: f.n }, (_, i) => val(`${id}-${i}`)).filter(Boolean); if (f.req && !v.length) missing.push(f.label); }
+    else if (f.type === 'gauge') { const r = document.querySelector(`input[name="${id}"]:checked`); v = r ? +r.value : null; if (f.req && v === null) missing.push(f.label); }
+    else if (f.type === 'photos') v = (PG.ph[phKey(kind, f.id)] || []).slice();
+    else { v = val(id); if (f.req && !v) missing.push(f.label); }
+    data[f.id] = v;
+  }));
+  return { data, missing };
+}
+function formSummary(kind, data) {
+  return FORMS[kind].sections.flatMap(sec => sec.fields).filter(f => !['photos', 'gauge', 'date'].includes(f.type) && data[f.id] && (!Array.isArray(data[f.id]) || data[f.id].length))
+    .map(f => `${f.label}: ${Array.isArray(data[f.id]) ? data[f.id].join('، ') : data[f.id]}`).join('\n').slice(0, 3000);
+}
+async function hydratePhotos(root) {
+  const imgs = [...(root || document).querySelectorAll('img[data-path]:not([src])')];
+  if (!imgs.length) return;
+  const paths = [...new Set(imgs.map(i => i.dataset.path))];
+  try {
+    const r = await q(sb.storage.from('submissions').createSignedUrls(paths, 3600));
+    const m = {}; (r || []).forEach(o => { if (o.signedUrl) m[o.path] = o.signedUrl; });
+    imgs.forEach(i => { if (m[i.dataset.path]) i.src = m[i.dataset.path]; });
+  } catch (e) { console.error(e); }
+}
+function subBody(s, isSelf) {
+  const k = KINDS.find(x => x.id === s.kind);
+  return `${s.data ? `<div class="fv">${formView(s.kind, s.data)}</div>` : (s.content ? `<p>${h(s.content)}</p>` : '')}
+    ${s.link || s.file_path ? `<div class="actions">${s.link ? `<a href="${h(s.link)}" target="_blank" rel="noopener">فتح الرابط</a>` : ''}${s.file_path ? `<button class="linkish" data-act="file" data-b="submissions" data-p="${h(s.file_path)}">📎 ${h(s.file_name || 'فتح الملف المرفق')}</button>` : ''}</div>` : ''}
+    ${s.self_rating ? `<div class="hint" style="margin-top:6px">${isSelf ? 'تقييمك لاستفادتك' : 'تقييم الطالب لاستفادته'}: ${stars(s.self_rating)}</div>` : ''}
+    ${s.status !== 'draft' && (s.feedback || s.status === 'approved') ? `<div class="fb">${s.status === 'approved' ? `الدرجة: <b>${n(s.score ?? P[k.id])}</b> من ${P[k.id]}` : ''}${s.feedback ? `<div>ملاحظة الأخصائي: ${h(s.feedback)}</div>` : ''}</div>` : ''}`;
+}
+
 const FILE_ACCEPT = '.pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 async function weekPage(main, student, wid, isSelf) {
   const weeks = await loadWeeks(); const w = weeks.find(x => x.id === +wid);
@@ -410,33 +580,27 @@ async function weekPage(main, student, wid, isSelf) {
   const endTxt = fmtDate(todayFmt(windowEnd(w)));
   const idx = weeks.indexOf(w), prev = weeks[idx - 1], next = weeks[idx + 1];
   const base = isSelf ? '#/week/' : `#/student/${student.id}/`;
+  PG.ph = {};
   const panels = KINDS.map(k => {
     const s = subs.find(x => x.kind === k.id);
     const canSubmit = active && (s ? s.status !== 'approved' && (open || s.status === 'rejected') : open);
-    const show = s ? `<div class="sub-box">${s.content ? `<p>${h(s.content)}</p>` : ''}
-        ${s.link || s.file_path ? `<div class="actions" ${s.content ? '' : 'style="margin-top:0"'}>${s.link ? `<a href="${h(s.link)}" target="_blank" rel="noopener">فتح الرابط</a>` : ''}${s.file_path ? `<button class="linkish" data-act="file" data-b="submissions" data-p="${h(s.file_path)}">📎 ${h(s.file_name || 'فتح الملف المرفق')}</button>` : ''}</div>` : ''}
-        ${s.self_rating ? `<div class="hint" style="margin-top:6px">${isSelf ? 'تقييمك لاستفادتك' : 'تقييم الطالب لاستفادته'}: ${stars(s.self_rating)}</div>` : ''}
-        ${s.feedback || s.status === 'approved' ? `<div class="fb">${s.status === 'approved' ? `الدرجة: <b>${n(s.score ?? P[k.id])}</b> من ${P[k.id]}` : ''}${s.feedback ? `<div>ملاحظة الأخصائي: ${h(s.feedback)}</div>` : ''}</div>` : ''}</div>` : '';
+    const show = s && s.status !== 'draft' ? `<div class="sub-box">${subBody(s, isSelf)}</div>` : '';
     let form = '';
     if (canSubmit) {
-      const isFile = s && !s.content && s.file_path;
-      form = `<div class="grid">
-        <div class="mode" role="radiogroup" aria-label="طريقة الرفع">
-          <label><input type="radio" name="m-${k.id}" value="text" data-act-change="mode" data-k="${k.id}" ${isFile ? '' : 'checked'}> كتابة نص</label>
-          <label><input type="radio" name="m-${k.id}" value="file" data-act-change="mode" data-k="${k.id}" ${isFile ? 'checked' : ''}> إرفاق ملف Word أو PDF</label>
-        </div>
-        <label class="field" id="pt-${k.id}" ${isFile ? 'hidden' : ''}><span>صف ما قمت به</span><textarea id="c-${k.id}" maxlength="3000" placeholder="${h(k.hint)}">${s && s.content ? h(s.content) : ''}</textarea></label>
-        <label class="field" id="pf-${k.id}" ${isFile ? '' : 'hidden'}><span>اختر الملف (Word أو PDF، حتى 10 ميجابايت)</span><input type="file" id="f-${k.id}" accept="${FILE_ACCEPT}"><span class="hint">${h(k.hint)}</span></label>
-        <div class="field"><span>${h(C.PRACTICE_QUESTION.replace('{الممارسة}', k.name))} <small class="hint">(1 منخفض، 5 مرتفع)</small></span>${scale('r-' + k.id, s && s.self_rating)}</div>
-        <div class="actions" style="margin-top:0"><button class="btn" data-act="submit" data-k="${k.id}" data-w="${w.id}">${s ? 'إعادة الرفع' : 'رفع الممارسة'}</button></div></div>`;
-      if (s) form = `<details class="edit"><summary class="btn ghost sm">${s.status === 'rejected' ? 'أعد رفع الممارسة' : 'تعديل الممارسة'}</summary>${form}</details>`;
+      (s && s.data ? FORMS[k.id].sections.flatMap(x => x.fields).filter(f => f.type === 'photos') : []).forEach(f => { PG.ph[phKey(k.id, f.id)] = (s.data[f.id] || []).slice(); });
+      form = `<div class="fm" id="fm-${k.id}">${formEdit(k.id, s && s.data)}
+        <div class="field"><span>${h(C.PRACTICE_QUESTION.replace('{الممارسة}', k.name))} <b class="req">*</b> <small class="hint">(1 منخفض، 5 مرتفع)</small></span>${scale('r-' + k.id, s && s.self_rating)}</div>
+        <label class="field"><span>إرفاق صفحة الكراسة أو ملف (اختياري: صورة أو PDF أو Word)</span><input type="file" id="f-${k.id}" accept="image/*,${FILE_ACCEPT}">${s && s.file_path ? `<span class="hint">المرفق الحالي: ${h(s.file_name || 'ملف')}</span>` : ''}</label>
+        <div class="actions" style="margin-top:0"><button class="btn gold" data-act="submit" data-k="${k.id}" data-w="${w.id}">${s && s.status !== 'draft' ? 'إعادة الإرسال للمراجعة' : 'إرسال للمراجعة'}</button><button class="btn ghost" data-act="submit" data-draft="1" data-k="${k.id}" data-w="${w.id}">💾 حفظ مسودة</button></div></div>`;
+      if (s && s.status !== 'draft') form = `<details class="edit"><summary class="btn ghost sm">${s.status === 'rejected' ? 'أعد إرسال الممارسة' : 'تعديل الممارسة'}</summary>${form}</details>`;
     }
     let note = '';
     if (!s && !canSubmit) note = isSelf ? (student.status !== 'active' ? '' : !started(w) ? `يُفتح الرفع يوم اللقاء ${fmtDate(w.meeting_date)}.` : `انتهت مدة الرفع يوم الأحد ${endTxt}.`) : 'لم يرفع الطالب هذه الممارسة.';
     let review = '';
-    if (!isSelf && isStaff() && s) review = reviewControls(s, k);
+    if (!isSelf && isStaff() && s && s.status !== 'draft') review = reviewControls(s, k);
     return `<div class="prac"><div class="prac-h"><h3>${k.name}</h3><span class="hint">${k.day} — ${k.mins} دقيقة — ${P[k.id]} درجة</span>
       <span class="chip ${s ? s.status : 'none'}">${s ? SUB[s.status] : 'لم تُرفع'}</span></div>
+      ${isSelf ? practiceGuide(k.id, !s) : ''}${k.id === 'knowledge' ? knowledgeBox(w) : ''}
       ${note ? `<p class="hint">${note}</p>` : ''}${show}${form}${review}</div>`;
   }).join('');
   const isToday = w.meeting_date === todayStr();
@@ -446,32 +610,44 @@ async function weekPage(main, student, wid, isSelf) {
     <span class="chip ${a || 'none'}">${a ? 'حضور اللقاء: ' + ATT[a] + (selfMarked ? ' (بالموقع)' : '') + (a === 'present' && att[0].marked_at ? ' — ' + fmtTime(att[0].marked_at) : '') : 'لم يُسجّل الحضور'}</span>${a === 'present' && att[0].early ? EARLY : ''}${a === 'present' ? `<span class="chip">${n(Math.max((att[0].points || P.attendance) - (att[0].leave_penalty || 0), 0))} درجة${att[0].points && att[0].points < 30 ? ' · ' + PTS[att[0].points] : ''}</span>` : ''}${a === 'present' && att[0].checkout_at ? `<span class="chip ${att[0].leave_penalty ? 'bad' : 'none'}">انصراف ${fmtTime(att[0].checkout_at)}${att[0].leave_penalty ? ' · −' + n(att[0].leave_penalty) : ''}</span>` : ''}</div>
   ${active && isToday ? checkInCard(w, a, st) : ''}
   ${isSelf && a === 'present' ? dayRatingCard(w) : ''}
-  <div class="card"><h2>الممارسات القيادية</h2><p class="sub">${limited && open ? `الرفع متاح من يوم اللقاء حتى نهاية يوم الأحد ${endTxt}. ` : ''}الممارسات تُنفّذ حتى لو غاب الطالب عن اللقاء. ارفع كل ممارسة نصًا مكتوبًا أو ملف Word أو PDF.</p>${panels}</div>
+  <div class="card"><h2>الممارسات القيادية</h2><p class="sub">${limited && open ? `الرفع متاح من يوم اللقاء حتى نهاية يوم الأحد ${endTxt}. ` : ''}الممارسات تُنفّذ حتى لو غاب الطالب عن اللقاء. عبّئ نموذج كل ممارسة من كراسة الممارسات الفعالة، واحفظه مسودة إن لم تكمله.</p>${panels}</div>
   <div class="actions">${prev ? `<a class="btn ghost sm" href="${base}${prev.id}">الأسبوع السابق</a>` : ''}<a class="btn ghost sm" href="${isSelf ? '#/home' : '#/student/' + student.id}">كل الأسابيع</a>${next ? `<a class="btn ghost sm" href="${base}${next.id}">الأسبوع التالي</a>` : ''}</div>`;
-  PG = { reload: () => weekPage(main, student, wid, isSelf) };
+  PG = { reload: () => weekPage(main, student, wid, isSelf), ph: PG.ph };
+  hydratePhotos(main); hydrateWorkbookImages(main);
 }
 async function submitPractice(btn) {
-  const kind = btn.dataset.k, wid = +btn.dataset.w;
-  const mode = (document.querySelector(`input[name="m-${kind}"]:checked`) || {}).value || 'text';
+  const kind = btn.dataset.k, wid = +btn.dataset.w, draft = !!btn.dataset.draft;
+  const { data, missing } = formCollect(kind);
   const rating = +((document.querySelector(`input[name="r-${kind}"]:checked`) || {}).value || 0);
-  if (!rating) return toast('اختر تقييم استفادتك من الممارسة (من 1 إلى 5).', true);
-  const content = val('c-' + kind), file = $('f-' + kind) && $('f-' + kind).files[0];
-  if (mode === 'text' && content.length < 10) return toast('اكتب وصفًا واضحًا لما قمت به (10 أحرف على الأقل).', true);
-  if (mode === 'file') {
-    if (!file) return toast('اختر ملف Word أو PDF أولًا.', true);
-    if (!['pdf', 'doc', 'docx'].includes(safeExt(file.name))) return toast('الملف يجب أن يكون Word أو PDF.', true);
-    if (file.size > 10 * 1024 * 1024) return toast('الملف أكبر من 10 ميجابايت.', true);
+  if (!draft) {
+    if (missing.length) return toast(`أكمل الحقول المطلوبة: ${missing.join('، ')}`, true);
+    if (!rating) return toast('اختر تقييم استفادتك من الممارسة (من 1 إلى 5).', true);
   }
+  const att = $('f-' + kind) && $('f-' + kind).files[0];
+  if (att && att.size > 10 * 1024 * 1024) return toast('الملف أكبر من 10 ميجابايت.', true);
+  const photoFields = FORMS[kind].sections.flatMap(x => x.fields).filter(f => f.type === 'photos');
+  for (const f of photoFields) { const inp = $(`fm-${kind}-${f.id}-file`); if (inp && inp.files.length + data[f.id].length > f.max) return toast(`الحد الأقصى ${n(f.max)} صور في «${f.label}».`, true); }
   await busy(btn, async () => {
-    const row = { student_id: S.me.id, week_id: wid, kind, link: null, self_rating: rating };
-    if (mode === 'file') {
-      const path = `${S.me.id}/w${wid}-${kind}-${Date.now()}.${safeExt(file.name)}`;
-      await q(sb.storage.from('submissions').upload(path, file, { contentType: file.type || undefined }));
-      Object.assign(row, { content: '', file_path: path, file_name: file.name.slice(0, 120) });
-    } else Object.assign(row, { content, file_path: null, file_name: null });
+    for (const f of photoFields) {
+      const inp = $(`fm-${kind}-${f.id}-file`); if (!inp) continue;
+      let i = 0;
+      for (const f0 of inp.files) {
+        i++; const img = await compressImage(f0);
+        const path = `${S.me.id}/w${wid}-${kind}-${f.id}-${Date.now()}-${i}.${safeExt(img.name)}`;
+        await q(sb.storage.from('submissions').upload(path, img, { contentType: img.type || undefined }));
+        data[f.id].push({ path, name: f0.name.slice(0, 80) });
+      }
+    }
+    const row = { student_id: S.me.id, week_id: wid, kind, data, content: formSummary(kind, data) || '—', self_rating: rating || null, link: null, status: draft ? 'draft' : 'pending' };
+    if (att) {
+      const f = /^image\//.test(att.type) ? await compressImage(att) : att;
+      const path = `${S.me.id}/w${wid}-${kind}-${Date.now()}.${safeExt(f.name)}`;
+      await q(sb.storage.from('submissions').upload(path, f, { contentType: f.type || undefined }));
+      Object.assign(row, { file_path: path, file_name: att.name.slice(0, 120) });
+    }
     await q(sb.from('submissions').upsert(row, { onConflict: 'student_id,week_id,kind' }));
     await PG.reload();
-  }, 'رُفعت الممارسة وأُرسلت للأخصائي.');
+  }, draft ? 'حُفظت المسودة، ويمكنك إكمالها لاحقًا.' : 'أُرسلت الممارسة إلى الأخصائي للمراجعة.');
 }
 
 /* ---------- المراجعة ---------- */
@@ -501,7 +677,7 @@ async function renderReview() {
     const f = PG.f;
     const mine = scoped(students), ids = new Set(mine.map(s => s.id)), byId = Object.fromEntries(students.map(s => [s.id, s]));
     let x = sb.from('submissions').select('*').order('created_at', { ascending: true }).range(0, 299);
-    if (f.status !== 'all') x = x.eq('status', f.status);
+    if (f.status !== 'all') x = x.eq('status', f.status); else x = x.neq('status', 'draft');
     if (f.week !== 'all') x = x.eq('week_id', +f.week);
     if (f.kind !== 'all') x = x.eq('kind', f.kind);
     const rows = (await q(x)).filter(s => ids.has(s.student_id));
@@ -514,10 +690,11 @@ async function renderReview() {
       ${S.me.role === 'specialist' ? scopeToggle() : ''}</div>
     ${rows.length ? rows.map(s => { const k = KINDS.find(z => z.id === s.kind); const st = byId[s.student_id] || {};
       return `<div class="card"><div class="prac-h"><h3>${h(st.full_name || '')}</h3><span class="chip">الأسبوع ${s.week_id}</span><span class="chip">${k.name}</span><span class="chip ${s.status}">${SUB[s.status]}</span></div>
-        <div class="sub-box"><p>${h(s.content)}</p>${s.link || s.file_path ? `<div class="actions">${s.link ? `<a href="${h(s.link)}" target="_blank" rel="noopener">فتح الرابط</a>` : ''}${s.file_path ? `<button class="linkish" data-act="file" data-b="submissions" data-p="${h(s.file_path)}">${h(s.file_name || 'فتح المرفق')}</button>` : ''}</div>` : ''}</div>
+        <div class="sub-box">${subBody(s, false)}</div>
         ${reviewControls(s, k)}</div>`; }).join('')
       : `<div class="card empty">${f.status === 'pending' ? 'لا توجد ممارسات بانتظار المراجعة. أحسنت!' : 'لا توجد ممارسات بهذه التصفية.'}</div>`}`;
     PG.reload = renderReview;
+    hydratePhotos(main);
   } catch (e) { fail(main, e); }
 }
 function scopeToggle() {
@@ -875,7 +1052,12 @@ async function renderWeeksAdmin() {
       <label class="field"><span>الجدارة</span><input type="text" id="wc-${w.id}" value="${h(w.competency)}"></label>
       <label class="field"><span>تاريخ اللقاء (ميلادي)</span><input type="date" id="wd-${w.id}" value="${h(w.meeting_date)}"></label>
       <label class="field"><span>التاريخ الهجري</span><input type="text" id="wh-${w.id}" value="${h(w.hijri_date || '')}"></label></div>
-      <div class="actions"><input type="text" id="wn-${w.id}" value="${h(w.note || '')}" placeholder="ملاحظة (مثل: زيارة ميدانية)" style="flex:1;min-width:200px"><button class="btn sm" data-act="w-save" data-id="${w.id}">حفظ</button></div></div>`).join('')}`;
+      <label class="field" style="margin-top:12px"><span>📖 محتوى المعرفة لهذا الأسبوع <small class="hint">(سطر يبدأ بـ ## عنوان فرعي، وسطر يبدأ بـ - نقطة)</small></span><textarea id="wk-${w.id}" rows="8" maxlength="8000">${h(w.knowledge || '')}</textarea></label>
+      <div class="actions" style="margin-top:6px"><span class="hint">إدراج صورة أو شكل في المحتوى:</span><input type="file" id="wki-${w.id}" accept="image/*"><button class="btn ghost sm" data-act="wk-img" data-id="${w.id}">إدراج الصورة</button>
+      <span class="hint">· الجدول: اكتب الصفوف بفاصل | وأول صف هو العناوين</span></div>
+      <div class="actions"><input type="text" id="wn-${w.id}" value="${h(w.note || '')}" placeholder="ملاحظة (مثل: زيارة ميدانية)" style="flex:1;min-width:200px"><button class="btn sm" data-act="w-save" data-id="${w.id}">حفظ</button></div>
+      <div class="actions wb-row"><span class="hint">📘 كراسة الأسبوع (PDF):</span>${w.workbook_path ? `<button class="linkish" data-act="file" data-b="workbooks" data-p="${h(w.workbook_path)}">فتح الكراسة الحالية</button>` : '<span class="hint">لم تُرفع</span>'}
+        <input type="file" id="wb-${w.id}" accept="application/pdf"><button class="btn ghost sm" data-act="wb-up" data-id="${w.id}">رفع الكراسة</button></div></div>`).join('')}`;
   } catch (e) { fail(main, e); }
 }
 
@@ -1326,6 +1508,8 @@ const ACTIONS = {
   logout: async () => { await sb.auth.signOut(); S.me = null; S.session = null; location.hash = '#/login'; route(); },
   reload: () => { S.me = null; route(); },
   submit: submitPractice,
+  'ph-rm': b => { const arr = PG.ph[b.dataset.key] || []; const ix = arr.findIndex(x => x.path === b.dataset.path); if (ix >= 0) arr.splice(ix, 1); const box = b.closest('.ph-item'); if (box) box.remove(); toast('ستُحذف الصورة عند الحفظ.'); },
+  'ph-open': b => { const imgs = [...b.closest('.fv-photos').querySelectorAll('img[src]')].map(i => i.src); const me = b.querySelector('img'); if (imgs.length) openPhoto(Math.max(imgs.indexOf(me.src), 0), imgs); },
   checkin: selfCheckIn,
   'rate-day': b => busy(b, async () => {
     const wid = b.dataset.w, v = +b.dataset.v;
@@ -1391,8 +1575,29 @@ const ACTIONS = {
     if (!armed(b, 'تأكيد الحذف النهائي')) return;
     busy(b, async () => { await q(sb.rpc('admin_delete_user', { p_user: b.dataset.id })); await renderUsers(); }, 'حُذف الحساب.');
   },
+  'wk-img': b => {
+    const id = +b.dataset.id, f = $('wki-' + id).files[0];
+    if (!f) return toast('اختر صورة أولًا.', true);
+    busy(b, async () => {
+      const img = await compressImage(f, 1800, 0.88);
+      const path = `knowledge-${id}-${Date.now()}.${safeExt(img.name)}`;
+      await q(sb.storage.from('workbooks').upload(path, img, { contentType: img.type || undefined }));
+      const ta = $('wk-' + id); ta.value = (ta.value ? ta.value.trim() + '\n' : '') + `![شكل توضيحي](wb:${path})`;
+    }, 'أُدرجت الصورة. اضغط «حفظ» لحفظ المحتوى.');
+  },
+  'wb-up': b => {
+    const id = +b.dataset.id, f = $('wb-' + id).files[0];
+    if (!f) return toast('اختر ملف PDF للكراسة أولًا.', true);
+    if (safeExt(f.name) !== 'pdf') return toast('الكراسة يجب أن تكون PDF.', true);
+    if (f.size > 20 * 1024 * 1024) return toast('الملف أكبر من 20 ميجابايت.', true);
+    busy(b, async () => {
+      const path = `week-${id}-${Date.now()}.pdf`;
+      await q(sb.storage.from('workbooks').upload(path, f, { contentType: 'application/pdf' }));
+      await q(sb.from('weeks').update({ workbook_path: path }).eq('id', id)); await loadWeeks(true); await renderWeeksAdmin();
+    }, 'رُفعت كراسة الأسبوع.');
+  },
   'w-save': b => {
-    const id = +b.dataset.id, row = { title: val('wt-' + id), competency: val('wc-' + id), meeting_date: val('wd-' + id), hijri_date: val('wh-' + id) || null, note: val('wn-' + id) || null };
+    const id = +b.dataset.id, row = { title: val('wt-' + id), competency: val('wc-' + id), meeting_date: val('wd-' + id), hijri_date: val('wh-' + id) || null, note: val('wn-' + id) || null, knowledge: val('wk-' + id) || null };
     if (!row.title || !row.meeting_date) return toast('الموضوع والتاريخ مطلوبان.', true);
     busy(b, async () => { await q(sb.from('weeks').update(row).eq('id', id)); await loadWeeks(true); }, 'حُفظ الأسبوع.');
   }
