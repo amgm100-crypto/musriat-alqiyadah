@@ -18,10 +18,10 @@ const FLAG = { ok: 'منتظم', warn: 'إنذار', exclude: 'مستحق للا
 const P = C.POINTS, R = C.RULES;
 const WEEK_MAX = P.attendance + KINDS.reduce((a, k) => a + P[k.id], 0);
 const NAV = {
-  observer: [['home', 'لوحة المتابعة'], ['students', 'الطلاب'], ['practices', '📋 تقرير الممارسات'], ['specialists', 'متابعة الأخصائيين'], ['leaders', 'الأوائل'], ['media', '📷 الوسائط'], ['posts', '📣 النشر الإعلامي'], ['impact', '📊 قياس الأثر'], ['reports', 'التقارير'], ['system', '📘 نظام البرنامج'], ['profile', 'حسابي']],
+  observer: [['home', 'لوحة المتابعة'], ['students', 'الطلاب'], ['specialists', 'متابعة الأخصائيين'], ['leaders', 'الأوائل'], ['media', '📷 الوسائط'], ['posts', '📣 النشر الإعلامي'], ['impact', '📊 قياس الأثر'], ['reports', 'التقارير'], ['system', '📘 نظام البرنامج'], ['profile', 'حسابي']],
   student: [['home', 'إنجازي'], ['leaders', 'الأوائل'], ['media', '📷 الوسائط'], ['system', '📘 نظام البرنامج'], ['profile', 'حسابي']],
-  specialist: [['home', 'لوحة المتابعة'], ['attendance', 'التحضير'], ['review', 'مراجعة الممارسات'], ['practices', '📋 تقرير الممارسات'], ['students', 'الطلاب'], ['leaders', 'الأوائل'], ['media', '📷 الوسائط'], ['posts', '📣 النشر الإعلامي'], ['impact', '📊 قياس الأثر'], ['reports', 'التقارير'], ['system', '📘 نظام البرنامج'], ['profile', 'حسابي']],
-  admin: [['home', 'لوحة المتابعة'], ['attendance', 'التحضير'], ['review', 'مراجعة الممارسات'], ['practices', '📋 تقرير الممارسات'], ['students', 'الطلاب'], ['specialists', 'الأخصائيون'], ['leaders', 'الأوائل'], ['media', '📷 الوسائط'], ['posts', '📣 النشر الإعلامي'], ['impact', '📊 قياس الأثر'], ['reports', 'التقارير'], ['users', 'المستخدمون'], ['weeks', 'الأسابيع'], ['system', '📘 نظام البرنامج'], ['profile', 'حسابي']]
+  specialist: [['home', 'لوحة المتابعة'], ['attendance', 'التحضير'], ['review', 'مراجعة الممارسات'], ['students', 'الطلاب'], ['leaders', 'الأوائل'], ['media', '📷 الوسائط'], ['posts', '📣 النشر الإعلامي'], ['impact', '📊 قياس الأثر'], ['reports', 'التقارير'], ['system', '📘 نظام البرنامج'], ['profile', 'حسابي']],
+  admin: [['home', 'لوحة المتابعة'], ['attendance', 'التحضير'], ['review', 'مراجعة الممارسات'], ['students', 'الطلاب'], ['specialists', 'الأخصائيون'], ['leaders', 'الأوائل'], ['media', '📷 الوسائط'], ['posts', '📣 النشر الإعلامي'], ['impact', '📊 قياس الأثر'], ['reports', 'التقارير'], ['users', 'المستخدمون'], ['weeks', 'الأسابيع'], ['system', '📘 نظام البرنامج'], ['profile', 'حسابي']]
 };
 
 const app = document.getElementById('app');
@@ -878,7 +878,15 @@ async function renderStudentAsStaff(sid, wid) {
 }
 
 /* ---------- التقارير ---------- */
+const REP_TABS = [['week', '🗓️ التقرير الأسبوعي'], ['period', '📈 تقرير الفترة'], ['practices', '📋 تقرير الممارسات']];
+const repTabs = () => `<div class="rep-tabs no-print" role="tablist">${REP_TABS.map(([k, t]) => `<button role="tab" aria-selected="${S.repTab === k}" class="${S.repTab === k ? 'on' : ''}" data-act="rep-tab" data-t="${k}">${t}</button>`).join('')}</div>`;
 async function renderReports() {
+  S.repTab = S.repTab || 'week';
+  if (S.repTab === 'practices') return renderPracticeReport();
+  if (S.repTab === 'week') return renderWeeklyReport();
+  return renderPeriodReport();
+}
+async function renderPeriodReport() {
   const main = shell('reports');
   try {
     const d = await staffData();
@@ -906,9 +914,9 @@ async function renderReports() {
       ['الترتيب', 'الطالب', 'المدرسة', 'الأخصائي', 'الحضور', 'الغياب', 'ممارسات مرفوعة', 'ممارسات مقبولة', 'غير منفّذة', 'المجموع', 'الحالة'],
       ...ranked.map((r, i) => [i + 1, r.s.full_name, r.s.school, staffName(r.s.specialist_id), r.pr.presents, r.pr.absences, r.pr.submitted, r.pr.approved, r.pr.missing, r.pr.total, FLAG[r.pr.flag]])
     ]);
-    main.innerHTML = `
+    main.innerHTML = repTabs() + `
     <div class="print-only" style="align-items:center;gap:16px;margin-bottom:16px"><img src="assets/association-logo.png" alt="" style="height:50px"><div><b>تقرير برنامج ${h(C.PROGRAM_NAME)}</b><div class="hint">${h(C.ORG_NAME)} — ${fmtDate(new Date().toISOString().slice(0, 10))}</div></div></div>
-    <div class="head"><div class="grow"><h1>التقارير الدورية</h1><p>من الأسبوع ${PG.from} إلى الأسبوع ${PG.to} — ${n(active.length)} طالب</p></div>
+    <div class="head"><div class="grow"><h1>تقرير الفترة</h1><p>من الأسبوع ${PG.from} إلى الأسبوع ${PG.to} — ${n(active.length)} طالب</p></div>
       <label class="no-print">من <select data-act-change="rep-from">${opt(PG.from)}</select></label>
       <label class="no-print">إلى <select data-act-change="rep-to">${opt(PG.to)}</select></label>
       ${S.me.role === 'specialist' ? `<span class="no-print">${scopeToggle()}</span>` : ''}
@@ -933,6 +941,116 @@ async function renderReports() {
     <div class="card"><h2>طلاب عليهم إنذار أو مستحقون للاستبعاد</h2>
       ${allFlags.length ? `<div class="scroll"><table><thead><tr><th>الطالب</th><th>الغياب</th><th>ممارسات غير منفّذة</th><th>الحالة</th></tr></thead><tbody>${allFlags.map(r => `<tr><td>${h(r.s.full_name)}</td><td>${n(r.pr.absences)}</td><td>${n(r.pr.missing)}</td><td><span class="chip ${r.pr.flag}">${FLAG[r.pr.flag]}</span></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">لا يوجد طلاب عليهم إنذار.</div>'}
     </div>`;
+  } catch (e) { fail(main, e); }
+}
+
+/* ---------- التقرير الأسبوعي ---------- */
+async function renderWeeklyReport() {
+  const main = shell('reports');
+  try {
+    const [weeks, students] = await Promise.all([loadWeeks(), loadStudents()]);
+    if (!S.staff.length) await loadStaff();
+    const startedW = weeks.filter(started);
+    PG.wr = PG.wr || String((startedW[startedW.length - 1] || weeks[0]).id);
+    const w = weeks.find(x => String(x.id) === PG.wr) || weeks[0];
+    const [att, subs, fb, media, posts, sheets] = await Promise.all([
+      q(sb.from('attendance').select('student_id,status,method,marked_at,early,points,leave_penalty,checkout_at').eq('week_id', w.id)),
+      q(sb.from('submissions').select('student_id,kind,status,score').eq('week_id', w.id).range(0, 9999)),
+      q(sb.from('feedback').select('student_id,answers').eq('type', 'day').eq('ref', String(w.id))).catch(() => []),
+      q(sb.from('media_items').select('*').eq('week_id', w.id).order('created_at')).catch(() => []),
+      q(sb.from('media_posts').select('*').eq('week_id', w.id).order('posted_on')).catch(() => []),
+      q(sb.from('attendance_sheets').select('id').eq('week_id', w.id)).catch(() => [])
+    ]);
+    const list = scoped(students).filter(s => s.status === 'active'), ids = new Set(list.map(s => s.id)), N = list.length;
+    const A = new Map(att.filter(a => ids.has(a.student_id)).map(a => [a.student_id, a]));
+    const Sx = new Map(subs.filter(x => ids.has(x.student_id)).map(x => [x.student_id + '|' + x.kind, x]));
+    const by = st => list.filter(s => (A.get(s.id) || {}).status === st);
+    const present = by('present'), absent = by('absent'), excused = by('excused'), unmarked = list.filter(s => !A.has(s.id));
+    const per = v => present.filter(s => (A.get(s.id).points || 30) === v).length;
+    const early = present.filter(s => A.get(s.id).early).length, leftEarly = present.filter(s => A.get(s.id).leave_penalty > 0);
+    const done = st => st === 'approved' || st === 'pending';
+    const kindRows = KINDS.map(k => { const st = list.map(s => (Sx.get(s.id + '|' + k.id) || {}).status || 'none');
+      return { k, done: st.filter(done).length, approved: st.filter(x => x === 'approved').length, pending: st.filter(x => x === 'pending').length, redo: st.filter(x => x === 'rejected').length, none: st.filter(x => !done(x) && x !== 'rejected').length }; });
+    const allDone = list.filter(s => KINDS.every(k => done((Sx.get(s.id + '|' + k.id) || {}).status))).length;
+    const missing = list.map(s => ({ s, ks: KINDS.filter(k => !done((Sx.get(s.id + '|' + k.id) || {}).status)) })).filter(r => r.ks.length);
+    const ratings = fb.filter(f => ids.has(f.student_id)).map(f => +(f.answers || {}).q1).filter(Boolean);
+    const rAvg = ratings.length ? ratings.reduce((a, b) => a + b, 0) / ratings.length : null;
+    const wScore = s => { const a = A.get(s.id); let t = a && a.status === 'present' ? Math.max((a.points || 30) - (a.leave_penalty || 0), 0) : 0;
+      KINDS.forEach(k => { const x = Sx.get(s.id + '|' + k.id); if (x && x.status === 'approved') t += +(x.score ?? P[k.id]); }); return t; };
+    const top = list.map(s => ({ s, t: wScore(s) })).filter(r => r.t > 0).sort((a, b) => b.t - a.t).slice(0, 5);
+    const photos = media.filter(m => m.kind === 'photo'), vids = media.filter(m => m.kind !== 'photo');
+    const urls = {};
+    if (photos.length) { try { const r = await q(sb.storage.from('media').createSignedUrls(photos.slice(0, 12).map(p => p.file_path), 3600)); (r || []).forEach(o => { if (o.signedUrl) urls[o.path] = o.signedUrl; }); } catch (e) { console.error(e); } }
+    const attRate = pct(present.length, N - unmarked.length), pracRate = pct(kindRows.reduce((a, r) => a + r.done, 0), N * KINDS.length);
+    const names = arr => arr.length ? arr.map(s => `<span class="wr-name">${h(s.full_name)}</span>`).join('') : '<span class="hint">لا أحد</span>';
+    const kpi = (v, t, cls = '') => `<div class="wr-kpi ${cls}"><b>${v}</b><span>${t}</span></div>`;
+    const bar = (v, max, cls) => `<span class="wr-bar"><i class="${cls || ''}" style="width:${max ? Math.round(v / max * 100) : 0}%"></i></span>`;
+    const scopeNote = S.me.role === 'specialist' && S.onlyMine ? ' — طلابي فقط' : '';
+    PG.csv = () => downloadCSV(`التقرير-الأسبوعي-الأسبوع-${w.id}.csv`, [
+      ['الطالب', 'المدرسة', 'الحضور', 'وقت التحضير', 'درجة الحضور', 'الانصراف', ...KINDS.map(k => k.name), 'درجة الأسبوع'],
+      ...list.map(s => { const a = A.get(s.id) || {}; return [s.full_name, s.school || '', a.status ? ATT[a.status] : 'لم يُحضَّر', a.marked_at && a.status === 'present' ? fmtTime(a.marked_at) : '', a.status === 'present' ? Math.max((a.points || 30) - (a.leave_penalty || 0), 0) : 0, a.checkout_at ? fmtTime(a.checkout_at) : '',
+        ...KINDS.map(k => PST[(Sx.get(s.id + '|' + k.id) || {}).status || 'none'].t), wScore(s)]; })
+    ]);
+    main.innerHTML = repTabs() + `
+    <div class="head no-print"><div class="grow"><h1>🗓️ التقرير الأسبوعي</h1><p>كل بيانات الأسبوع في تقرير واحد، جاهز للطباعة أو الحفظ PDF</p></div>
+      <label>الأسبوع <select data-act-change="wr-week">${weeks.map(x => `<option value="${x.id}" ${x.id === w.id ? 'selected' : ''}>الأسبوع ${x.id}: ${h(x.title)}${started(x) ? '' : ' (لم يبدأ)'}</option>`).join('')}</select></label>
+      ${S.me.role === 'specialist' ? scopeToggle() : ''}
+      <button class="btn ghost sm" data-act="csv">تصدير Excel</button><button class="btn gold sm" data-act="wr-print">🖨️ طباعة / حفظ PDF</button></div>
+    <p class="hint no-print" style="margin:-10px 0 16px">لحفظه PDF: اضغط «طباعة / حفظ PDF»، ثم اختر من «الوجهة»: <b>حفظ بتنسيق PDF</b>.</p>
+    <article class="wr">
+      <header class="wr-cover">
+        <div class="wr-logos"><img src="assets/program-logo.png" alt="${h(C.PROGRAM_NAME)}"><img src="assets/association-logo-light.png" alt="${h(C.ORG_NAME)}"></div>
+        <p class="wr-kicker">التقرير الأسبوعي${scopeNote}</p>
+        <h1>الأسبوع ${n(w.id)}: ${h(w.title)}</h1>
+        <p class="wr-meta">${h(w.competency || '')}${w.competency ? ' · ' : ''}لقاء الاثنين ${fmtDate(w.meeting_date)}${w.hijri_date ? ' (' + h(w.hijri_date) + ')' : ''}${w.note ? ' · ' + h(w.note) : ''}</p>
+        <p class="wr-date">تاريخ الإصدار: ${fmtDate(todayStr())} · عدد الطلاب: ${n(N)}</p>
+      </header>
+
+      <section class="wr-sec"><h2><span>1</span>مؤشرات الأسبوع</h2>
+        <div class="wr-kpis">
+          ${kpi(N - unmarked.length ? attRate + '٪' : '—', 'نسبة الحضور', 'hero')}
+          ${kpi(`${n(present.length)}/${n(N)}`, 'الحاضرون')}
+          ${kpi(n(early), '⭐ حضور مبكر')}
+          ${kpi(n(absent.length + excused.length), 'غائب أو مستأذن')}
+          ${kpi(pracRate + '٪', 'تنفيذ الممارسات', 'hero gold')}
+          ${kpi(`${n(allDone)}/${n(N)}`, 'أنجزوا الممارسات الثلاث')}
+          ${kpi(rAvg ? n(Math.round(rAvg * 10) / 10) + ' من 5' : '—', `تقييم الطلاب للقاء${ratings.length ? ' (' + n(ratings.length) + ')' : ''}`)}
+          ${kpi(n(photos.length + vids.length) + ' · ' + n(posts.length), 'وسائط · منشورات')}
+        </div></section>
+
+      <section class="wr-sec"><h2><span>2</span>الحضور والانصراف</h2>
+        <div class="wr-grid2">
+          <div class="wr-box"><h3>الحاضرون حسب وقت الوصول</h3>
+            <div class="wr-row"><span>⭐ مبكر (30)</span>${bar(per(30), present.length, 'gold')}<b>${n(per(30))}</b></div>
+            <div class="wr-row"><span>فترة العصر (20)</span>${bar(per(20), present.length)}<b>${n(per(20))}</b></div>
+            <div class="wr-row"><span>فترة المغرب (10)</span>${bar(per(10), present.length, 'gray')}<b>${n(per(10))}</b></div>
+            <p class="hint" style="margin:8px 0 0">انصراف قبل نهاية اللقاء: ${n(leftEarly.length)} · كشف ورقي مرفوع: ${sheets.length ? 'نعم' : 'لا'}</p></div>
+          <div class="wr-box"><h3>الغائبون (${n(absent.length)})</h3><div class="wr-names">${names(absent)}</div>
+            <h3 style="margin-top:12px">المستأذنون (${n(excused.length)})</h3><div class="wr-names">${names(excused)}</div>
+            ${unmarked.length ? `<h3 style="margin-top:12px">لم يُحضَّروا (${n(unmarked.length)})</h3><div class="wr-names">${names(unmarked)}</div>` : ''}</div>
+        </div></section>
+
+      <section class="wr-sec"><h2><span>3</span>الممارسات القيادية</h2>
+        <div class="scroll"><table class="wr-table"><thead><tr><th>الممارسة</th><th>نفّذوا</th><th>مقبولة</th><th>بانتظار المراجعة</th><th>مطلوب إعادتها</th><th>لم ينفّذوا</th></tr></thead><tbody>
+        ${kindRows.map(r => `<tr><td><b>${r.k.name}</b><div class="hint">${r.k.day}</div></td><td><div class="wr-cell">${bar(r.done, N, 'gold')}<b>${n(r.done)}/${n(N)}</b></div></td><td>${n(r.approved)}</td><td>${n(r.pending)}</td><td>${n(r.redo)}</td><td>${n(r.none)}</td></tr>`).join('')}
+        </tbody></table></div>
+        <div class="wr-box" style="margin-top:12px"><h3>لم يُكملوا ممارسات الأسبوع (${n(missing.length)})</h3>
+          ${missing.length ? `<div class="wr-miss">${missing.map(r => `<div><b>${h(r.s.full_name)}</b><span>${r.ks.length === KINDS.length ? 'الممارسات الثلاث' : r.ks.map(k => k.name).join('، ')}</span></div>`).join('')}</div>` : '<p class="hint" style="margin:0">الجميع أكمل ممارسات الأسبوع ✅</p>'}</div></section>
+
+      <section class="wr-sec"><h2><span>4</span>الأعلى إنجازًا هذا الأسبوع</h2>
+        ${top.length ? `<div class="wr-top">${top.map((r, i) => `<div class="wr-top-i ${i === 0 ? 'first' : ''}"><span>${n(i + 1)}</span><div><b>${h(r.s.full_name)}</b><small>${h(r.s.school || '')}</small></div><em>${n(r.t)}<small> من ${WEEK_MAX}</small></em></div>`).join('')}</div>` : '<p class="hint">لا توجد درجات لهذا الأسبوع بعد.</p>'}</section>
+
+      <section class="wr-sec"><h2><span>5</span>صور اللقاء</h2>
+        ${photos.length ? `<div class="wr-photos">${photos.slice(0, 12).map(p => urls[p.file_path] ? `<figure><img src="${h(urls[p.file_path])}" alt="${h(p.title || 'صورة من اللقاء')}" loading="eager">${p.title ? `<figcaption>${h(p.title)}</figcaption>` : ''}</figure>` : '').join('')}</div>
+          ${photos.length > 12 ? `<p class="hint">وأكثر: ${n(photos.length - 12)} صورة أخرى في صفحة الوسائط.</p>` : ''}` : '<p class="hint">لم تُرفع صور لهذا الأسبوع. ارفعها من صفحة 📷 الوسائط، واختر الأسبوع.</p>'}
+        ${vids.length ? `<p class="hint" style="margin-top:8px">🎬 مقاطع: ${n(vids.length)}${vids.filter(v => v.title).length ? ' — ' + vids.filter(v => v.title).map(v => h(v.title)).join('، ') : ''}</p>` : ''}</section>
+
+      <section class="wr-sec"><h2><span>6</span>النشر الإعلامي</h2>
+        ${posts.length ? `<div class="wr-posts">${posts.map(p => `<a class="wr-post" href="${h(p.url)}" target="_blank" rel="noopener"><span class="plat ${p.platform}">${PLAT[p.platform].ico}</span><div><b>${h(p.title || 'منشور على ' + PLAT[p.platform].name)}</b><small>${PLAT[p.platform].name} · ${fmtDate(p.posted_on)}</small><small class="wr-url" dir="ltr">${h(p.url)}</small></div></a>`).join('')}</div>` : '<p class="hint">لا توجد منشورات لهذا الأسبوع. أضفها من صفحة 📣 النشر الإعلامي.</p>'}</section>
+
+      <footer class="wr-foot"><div class="wr-flogos"><img src="assets/association-logo.png" alt="${h(C.ORG_NAME)}"><img src="assets/supporter-logo.png" alt="الشريك الداعم"><img src="assets/center-logo.png" alt="مركز دراسات القيادة" onerror="this.remove()"></div>
+        <p>صدر هذا التقرير من منصة ${h(C.PROGRAM_NAME)} — ${h(C.ORG_NAME)}</p></footer>
+    </article>`;
   } catch (e) { fail(main, e); }
 }
 
@@ -1526,7 +1644,7 @@ const PST = {
   none: { t: 'لم تُنفَّذ', c: 'none', done: 0 }
 };
 async function renderPracticeReport() {
-  const main = shell('practices');
+  const main = shell('reports');
   try {
     const [weeks, students] = await Promise.all([loadWeeks(), loadStudents()]);
     if (!S.staff.length) await loadStaff();
@@ -1569,7 +1687,7 @@ function drawPracticeReport(main) {
       ...rows.map(r => [r.s.full_name, r.s.school || '', staffName(r.s.specialist_id), r.s.phone || '', ...(single ? r.cells.map(c => PST[c.st].t) : []), r.done, r.req, missTxt(r)])
     ]);
     const tab = (v, t, c) => `<button class="${PG.pv === v ? 'on' : ''}" data-act="pr-view" data-v="${v}">${t} <b>${n(c)}</b></button>`;
-    main.innerHTML = `
+    main.innerHTML = repTabs() + `
     <div class="print-only" style="align-items:center;gap:16px;margin-bottom:16px"><img src="assets/association-logo.png" alt="" style="height:50px"><div><b>تقرير تنفيذ الممارسات — ${h(C.PROGRAM_NAME)}</b><div class="hint">${h(scopeTxt)} — ${h(kindTxt)} — ${fmtDate(todayStr())}</div></div></div>
     <div class="head"><div class="grow"><h1>📋 تقرير تنفيذ الممارسات</h1><p>من نفّذ ومن لم ينفّذ، بالأسماء</p></div>
       <label class="no-print">الأسبوع <select data-act-change="pr-week">${weeks.map(w => `<option value="${w.id}" ${String(w.id) === PG.pw ? 'selected' : ''}>الأسبوع ${w.id}${started(w) ? '' : ' (لم يبدأ)'}</option>`).join('')}<option value="all" ${PG.pw === 'all' ? 'selected' : ''}>كل الأسابيع حتى الآن</option></select></label>
@@ -1628,6 +1746,8 @@ const ACTIONS = {
   'att-all': markAllPresent,
   'sheet-up': uploadSheet,
   csv: () => PG.csv && PG.csv(),
+  'rep-tab': b => { S.repTab = b.dataset.t; renderReports(); },
+  'wr-print': async b => { await busy(b, async () => { const imgs = [...document.querySelectorAll('.wr img')]; await Promise.all(imgs.map(i => i.complete ? 0 : new Promise(r => { i.onload = i.onerror = r; setTimeout(r, 6000); }))); }); window.print(); },
   'pr-view': b => { PG.pv = b.dataset.v; drawPracticeReport($('main')); },
   'pr-copy': async () => { const txt = PG.copy && PG.copy(); if (!txt) return; try { await navigator.clipboard.writeText(txt); toast('نُسخت الأسماء، الصقها في واتساب.'); } catch { const t = document.createElement('textarea'); t.value = txt; document.body.appendChild(t); t.select(); try { document.execCommand('copy'); toast('نُسخت الأسماء، الصقها في واتساب.'); } catch { toast('تعذّر النسخ.', true); } t.remove(); } },
   print: () => window.print(),
@@ -1710,6 +1830,7 @@ document.addEventListener('change', e => {
   if (el.dataset.f && el.closest('.head') && PG.f && ['week', 'kind', 'status'].includes(el.dataset.f) && !el.dataset.actChange) { PG.f[el.dataset.f] = el.value; renderReview(); return; }
   const a = el.dataset.actChange; if (!a) return;
   if (a === 'scope') { S.onlyMine = el.checked; route(); }
+  else if (a === 'wr-week') { PG.wr = el.value; renderWeeklyReport(); }
   else if (a === 'pr-week') { PG.pw = el.value; renderPracticeReport(); }
   else if (a === 'pr-kind') { PG.pk = el.value; drawPracticeReport($('main')); }
   else if (a === 'att-week') location.hash = '#/attendance/' + el.value;
@@ -1765,7 +1886,7 @@ async function route() {
     case 'students': return renderStudents();
     case 'student': return parts[1] ? renderStudentAsStaff(parts[1], parts[2]) : renderStudents();
     case 'reports': return renderReports();
-    case 'practices': return renderPracticeReport();
+    case 'practices': S.repTab = 'practices'; location.replace('#/reports'); return;
     case 'leaders': return renderLeaders();
     case 'users': return role === 'admin' ? renderUsers() : renderStaffHome();
     case 'weeks': return role === 'admin' ? renderWeeksAdmin() : renderStaffHome();
