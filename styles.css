@@ -463,3 +463,19 @@ details.spec>summary b{flex:1}
   .kn-table td.kn-key{font-size:1.05rem}
   .kn-table td.kn-key::before{display:none}
 }
+
+/* ---------- name search & practices report ---------- */
+.search-row{display:flex;align-items:center;gap:12px;margin:0 0 14px}
+.search-row input{max-width:340px}
+.pr-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.pr-bar input[type=search]{max-width:240px}
+.seg-tabs{display:inline-flex;background:var(--navy-soft);border-radius:12px;padding:4px;gap:4px}
+.seg-tabs button{border:0;background:transparent;padding:8px 14px;border-radius:9px;font:inherit;color:var(--muted);cursor:pointer;white-space:nowrap}
+.seg-tabs button b{display:inline-grid;place-items:center;min-width:24px;height:22px;padding:0 6px;border-radius:11px;background:#fff;color:var(--navy);font-size:.8rem;margin-inline-start:4px}
+.seg-tabs button.on{background:var(--navy);color:#fff}
+.seg-tabs button.on b{background:var(--gold);color:#fff}
+.seg-tabs button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+.pr-table td{vertical-align:middle}
+.miss-list{color:var(--bad);font-size:.9rem;line-height:1.7;min-width:220px}
+@media (max-width:640px){.pr-bar input[type=search],.search-row input{max-width:none;flex:1}}
+@media print{.pr-table th:last-child,.pr-table td:last-child{display:table-cell}}

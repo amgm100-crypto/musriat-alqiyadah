@@ -18,10 +18,10 @@ const FLAG = { ok: 'منتظم', warn: 'إنذار', exclude: 'مستحق للا
 const P = C.POINTS, R = C.RULES;
 const WEEK_MAX = P.attendance + KINDS.reduce((a, k) => a + P[k.id], 0);
 const NAV = {
-  observer: [['home', 'لوحة المتابعة'], ['students', 'الطلاب'], ['specialists', 'متابعة الأخصائيين'], ['leaders', 'الأوائل'], ['media', '📷 الوسائط'], ['posts', '📣 النشر الإعلامي'], ['impact', '📊 قياس الأثر'], ['reports', 'التقارير'], ['system', '📘 نظام البرنامج'], ['profile', 'حسابي']],
+  observer: [['home', 'لوحة المتابعة'], ['students', 'الطلاب'], ['practices', '📋 تقرير الممارسات'], ['specialists', 'متابعة الأخصائيين'], ['leaders', 'الأوائل'], ['media', '📷 الوسائط'], ['posts', '📣 النشر الإعلامي'], ['impact', '📊 قياس الأثر'], ['reports', 'التقارير'], ['system', '📘 نظام البرنامج'], ['profile', 'حسابي']],
   student: [['home', 'إنجازي'], ['leaders', 'الأوائل'], ['media', '📷 الوسائط'], ['system', '📘 نظام البرنامج'], ['profile', 'حسابي']],
-  specialist: [['home', 'لوحة المتابعة'], ['attendance', 'التحضير'], ['review', 'مراجعة الممارسات'], ['students', 'الطلاب'], ['leaders', 'الأوائل'], ['media', '📷 الوسائط'], ['posts', '📣 النشر الإعلامي'], ['impact', '📊 قياس الأثر'], ['reports', 'التقارير'], ['system', '📘 نظام البرنامج'], ['profile', 'حسابي']],
-  admin: [['home', 'لوحة المتابعة'], ['attendance', 'التحضير'], ['review', 'مراجعة الممارسات'], ['students', 'الطلاب'], ['specialists', 'الأخصائيون'], ['leaders', 'الأوائل'], ['media', '📷 الوسائط'], ['posts', '📣 النشر الإعلامي'], ['impact', '📊 قياس الأثر'], ['reports', 'التقارير'], ['users', 'المستخدمون'], ['weeks', 'الأسابيع'], ['system', '📘 نظام البرنامج'], ['profile', 'حسابي']]
+  specialist: [['home', 'لوحة المتابعة'], ['attendance', 'التحضير'], ['review', 'مراجعة الممارسات'], ['practices', '📋 تقرير الممارسات'], ['students', 'الطلاب'], ['leaders', 'الأوائل'], ['media', '📷 الوسائط'], ['posts', '📣 النشر الإعلامي'], ['impact', '📊 قياس الأثر'], ['reports', 'التقارير'], ['system', '📘 نظام البرنامج'], ['profile', 'حسابي']],
+  admin: [['home', 'لوحة المتابعة'], ['attendance', 'التحضير'], ['review', 'مراجعة الممارسات'], ['practices', '📋 تقرير الممارسات'], ['students', 'الطلاب'], ['specialists', 'الأخصائيون'], ['leaders', 'الأوائل'], ['media', '📷 الوسائط'], ['posts', '📣 النشر الإعلامي'], ['impact', '📊 قياس الأثر'], ['reports', 'التقارير'], ['users', 'المستخدمون'], ['weeks', 'الأسابيع'], ['system', '📘 نظام البرنامج'], ['profile', 'حسابي']]
 };
 
 const app = document.getElementById('app');
@@ -104,6 +104,8 @@ const loadSubsMeta = (sid) => { let x = sb.from('submissions').select('id,studen
 const loadAtt = (sid) => { let x = sb.from('attendance').select('week_id,student_id,status,marked_at,early,points,checkout_at,leave_penalty'); if (sid) x = x.eq('student_id', sid); return q(x.range(0, 9999)); };
 const isStaff = () => S.me && (S.me.role === 'specialist' || S.me.role === 'admin');
 const staffName = id => (S.staff.find(s => s.id === id) || {}).full_name || '';
+const normAr = t => String(t || '').replace(/[ً-ْـ]/g, '').replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/\s+/g, ' ').trim().toLowerCase();
+const matchName = (s, term) => { const t = normAr(term); if (!t) return true; const d = digits(term); return normAr(s.full_name).includes(t) || (d && d.length >= 3 && ((s.phone || '').includes(d) || (s.username || '').includes(d))); };
 function scoped(students) {
   if (S.me.role === 'specialist' && S.onlyMine && students.some(s => s.specialist_id === S.me.id)) return students.filter(s => s.specialist_id === S.me.id);
   return students;
@@ -738,6 +740,7 @@ function drawAttendance(main, weeks) {
     <div class="kpi"><b>${n(out)}/${n(c.present)}</b><span>انصرفوا</span></div>
   </div>
   <div class="card"><div class="prac-h"><h2 style="flex:1">كشف الحضور</h2>${unmarked ? `<button class="btn gold sm" data-act="att-all">تسجيل غير المحضَّرين حاضرين</button>` : ''}</div>
+    ${list.length ? `<div class="search-row"><input type="search" id="att-q" placeholder="🔍 ابحث باسم الطالب أو رقم هويته" value="${h(PG.q || '')}" autocomplete="off"><span class="hint" id="att-q-count"></span></div>` : ''}
     <p class="sub">درجة الحضور تُحسب تلقائيًا من وقت التحضير: <b>مبكر 30</b> · <b>العصر 20</b> · <b>المغرب 10</b>، ويمكن تعديلها من عمود «الدرجة». والانصراف قبل فترة المغرب يخصم 10، وقبل فترة العصر 20.</p>
     ${admin && c.present ? `<div class="checkout-bar"><label class="check"><input type="checkbox" data-act-change="sel-all" ${PG.sel.size && PG.sel.size === list.filter(s => att[s.id] === 'present').length ? 'checked' : ''}> تحديد كل الحاضرين</label>
       <span class="hint">${n(PG.sel.size)} محدد</span>
@@ -745,18 +748,29 @@ function drawAttendance(main, weeks) {
       <button class="btn sm" data-act="checkout" ${PG.sel.size ? '' : 'disabled'}>تسجيل انصراف المحددين</button></div>` : ''}
     ${list.length ? `<div class="scroll"><table><thead><tr>${admin ? '<th style="width:40px"></th>' : ''}<th>الطالب</th><th>الحضور</th><th>الدرجة</th><th>الانصراف</th><th>الحالة</th></tr></thead><tbody>
     ${list.map(s => { const m = PG.meth[s.id] || {}, pres = att[s.id] === 'present';
-      return `<tr>${admin ? `<td>${pres ? `<input type="checkbox" class="row-chk" data-act-change="sel" data-sid="${s.id}" ${PG.sel.has(s.id) ? 'checked' : ''} aria-label="تحديد ${h(s.full_name)}">` : ''}</td>` : ''}
+      return `<tr data-sid="${s.id}">${admin ? `<td>${pres ? `<input type="checkbox" class="row-chk" data-act-change="sel" data-sid="${s.id}" ${PG.sel.has(s.id) ? 'checked' : ''} aria-label="تحديد ${h(s.full_name)}">` : ''}</td>` : ''}
       <td><b>${h(s.full_name)}</b><div class="hint">${h(s.school || '')}${m.method === 'self' && pres ? ' · 📍 حضّر نفسه' : ''}</div></td>
       <td>${pres && m.marked_at ? `<span class="time">${fmtTime(m.marked_at)}</span>${m.early ? ' ' + EARLY : ''}` : '<span class="hint">—</span>'}</td>
       <td>${pres ? ptsSel(s) : '<span class="hint">—</span>'}</td>
       <td>${pres && m.checkout_at ? `<span class="time">${fmtTime(m.checkout_at)}</span>${m.leave_penalty ? ` <span class="chip bad" title="انصراف قبل نهاية اللقاء">−${n(m.leave_penalty)}</span>` : ''}${admin ? ` <button class="linkish" data-act="co-clear" data-sid="${s.id}" title="إلغاء الانصراف">✕</button>` : ''}` : '<span class="hint">—</span>'}</td>
       <td><div class="seg3">${['present', 'absent', 'excused'].map(st => `<button class="${st}" aria-pressed="${att[s.id] === st}" data-act="att" data-sid="${s.id}" data-st="${st}">${ATT[st]}</button>`).join('')}</div></td></tr>`; }).join('')}
+    <tr class="att-none" hidden><td colspan="${admin ? 6 : 5}" class="empty">لا يوجد طالب بهذا الاسم.</td></tr>
     </tbody></table></div>` : '<div class="empty">لا يوجد طلاب مفعّلون بعد.</div>'}
   </div>
   <div class="card"><h2>رفع كشف التحضير الورقي</h2><p class="sub">صورة أو ملف PDF لكشف الحضور الموقّع للقاء هذا الأسبوع.</p>
     <div class="actions" style="margin-top:0"><input type="file" id="sheet-file" accept="image/*,application/pdf"><button class="btn sm" data-act="sheet-up">رفع الكشف</button></div>
     ${sheets.length ? sheets.map(sh => `<div class="row-line"><div class="grow">${h(sh.file_name || 'كشف')}<div class="hint">${fmtDate(sh.created_at.slice(0, 10))}${sh.uploaded_by ? ' — ' + h(staffName(sh.uploaded_by)) : ''}</div></div><button class="btn ghost sm" data-act="file" data-b="sheets" data-p="${h(sh.file_path)}">فتح</button></div>`).join('') : '<p class="hint">لم يُرفع كشف لهذا الأسبوع.</p>'}
   </div>`;
+  filterAttendance();
+  const qi = $('att-q');
+  if (qi) qi.addEventListener('input', e => { PG.q = e.target.value; filterAttendance(); });
+}
+function filterAttendance() {
+  const rows = [...document.querySelectorAll('#main tr[data-sid]')]; if (!rows.length) return;
+  const byId = new Map(PG.list.map(x => [x.id, x])); let shown = 0;
+  rows.forEach(r => { const ok = matchName(byId.get(r.dataset.sid), PG.q); r.hidden = !ok; if (ok) shown++; });
+  const none = document.querySelector('#main .att-none'); if (none) none.hidden = shown > 0;
+  const c = $('att-q-count'); if (c) c.textContent = PG.q && PG.q.trim() ? `${n(shown)} من ${n(rows.length)}` : '';
 }
 const ATT_SEL = 'student_id,status,method,distance_m,marked_at,early,points,checkout_at,leave_penalty';
 async function markAttendance(btn) {
@@ -841,7 +855,7 @@ async function renderStudents() {
     const d = await staffData();
     PG = { rows: d.rows.sort((a, b) => b.pr.total - a.pr.total), term: PG.term || '' };
     const draw = () => {
-      const t = PG.term.trim(); const rows = PG.rows.filter(r => !t || r.s.full_name.includes(t) || (r.s.phone || '').includes(digits(t) || '#'));
+      const rows = PG.rows.filter(r => matchName(r.s, PG.term));
       $('st-body').innerHTML = rows.length ? rows.map(r => `<tr class="click" data-go="#/student/${r.s.id}"><td><b>${h(r.s.full_name)}</b><div class="hint">${h(r.s.school || '')}</div></td>
         <td>${h(staffName(r.s.specialist_id) || '—')}</td><td>${n(r.pr.presents)}/${n(r.pr.startedWeeks)}</td><td>${n(r.pr.approved)}</td><td>${n(r.pr.missing)}</td>
         <td class="num">${n(r.pr.total)}</td><td>${r.s.status === 'excluded' ? '<span class="chip exclude">مستبعد</span>' : `<span class="chip ${r.pr.flag}">${FLAG[r.pr.flag]}</span>`}</td></tr>`).join('')
@@ -1503,6 +1517,87 @@ async function renderSystem() {
   } catch (e) { fail(main, e); }
 }
 
+/* ---------- تقرير الممارسات ---------- */
+const PST = {
+  approved: { t: 'مقبولة', c: 'approved', done: 1 },
+  pending: { t: 'بانتظار المراجعة', c: 'pending', done: 1 },
+  rejected: { t: 'مطلوب إعادتها', c: 'rejected', done: 0 },
+  draft: { t: 'مسودة لم تُرسل', c: 'draft', done: 0 },
+  none: { t: 'لم تُنفَّذ', c: 'none', done: 0 }
+};
+async function renderPracticeReport() {
+  const main = shell('practices');
+  try {
+    const [weeks, students] = await Promise.all([loadWeeks(), loadStudents()]);
+    if (!S.staff.length) await loadStaff();
+    PG.pw = PG.pw || String(currentWeek(weeks).id); PG.pk = PG.pk || 'all'; PG.pv = PG.pv || 'missing'; PG.term = PG.term || '';
+    let x = sb.from('submissions').select('student_id,week_id,kind,status').range(0, 9999);
+    if (PG.pw !== 'all') x = x.eq('week_id', +PG.pw);
+    PG.prData = { weeks, students, subs: await q(x) };
+    drawPracticeReport(main);
+  } catch (e) { fail(main, e); }
+}
+function drawPracticeReport(main) {
+    const { weeks, students, subs } = PG.prData;
+    const startedW = weeks.filter(started);
+    const map = new Map(subs.map(r => [r.student_id + '|' + r.week_id + '|' + r.kind, r.status]));
+    const list = scoped(students).filter(s => s.status === 'active');
+    const wks = PG.pw === 'all' ? startedW : weeks.filter(w => w.id === +PG.pw);
+    const kinds = PG.pk === 'all' ? KINDS : KINDS.filter(k => k.id === PG.pk);
+    const rows = list.map(s => {
+      const cells = wks.flatMap(w => kinds.map(k => ({ w, k, st: map.get(s.id + '|' + w.id + '|' + k.id) || 'none' })));
+      const done = cells.filter(c => PST[c.st].done).length;
+      return { s, cells, done, req: cells.length, missing: cells.filter(c => !PST[c.st].done) };
+    });
+    const complete = rows.filter(r => r.req && r.done === r.req), incomplete = rows.filter(r => r.done < r.req);
+    const shown = (PG.pv === 'missing' ? incomplete : PG.pv === 'done' ? complete : rows).filter(r => matchName(r.s, PG.term));
+    const single = PG.pw !== 'all', wk = single ? wks[0] : null;
+    const scopeTxt = single ? `الأسبوع ${wk.id}: ${wk.title}` : `كل الأسابيع حتى الآن (${n(startedW.length)})`;
+    const kindTxt = PG.pk === 'all' ? 'كل الممارسات' : kinds[0].name;
+    const missTxt = r => {
+      if (single) return r.missing.map(c => c.k.name).join('، ');
+      const byW = new Map(); r.missing.forEach(c => { if (!byW.has(c.w.id)) byW.set(c.w.id, []); byW.get(c.w.id).push(c.k.name); });
+      return [...byW].map(([wid, ks]) => `الأسبوع ${wid}: ${ks.length === kinds.length && kinds.length > 1 ? 'كل الممارسات' : ks.join('، ')}`).join(' · ');
+    };
+    const perKind = kinds.map(k => ({ k, done: rows.filter(r => r.cells.filter(c => c.k.id === k.id).every(c => PST[c.st].done) && r.cells.some(c => c.k.id === k.id)).length }));
+    PG.copy = () => {
+      const lines = incomplete.map((r, i) => `${i + 1}. ${r.s.full_name}${kinds.length > 1 || !single ? ' — ' + missTxt(r) : ''}`);
+      return `لم ينفّذوا ${kindTxt} — ${scopeTxt}:\n` + (lines.join('\n') || 'لا أحد، الجميع أنجز ✅');
+    };
+    PG.csv = () => downloadCSV(`تقرير-الممارسات-${single ? 'الأسبوع-' + wk.id : 'كل-الأسابيع'}.csv`, [
+      ['الطالب', 'المدرسة', 'الأخصائي', 'رقم الجوال', ...(single ? kinds.map(k => k.name) : []), 'المنفّذ', 'المطلوب', 'لم يُنفَّذ'],
+      ...rows.map(r => [r.s.full_name, r.s.school || '', staffName(r.s.specialist_id), r.s.phone || '', ...(single ? r.cells.map(c => PST[c.st].t) : []), r.done, r.req, missTxt(r)])
+    ]);
+    const tab = (v, t, c) => `<button class="${PG.pv === v ? 'on' : ''}" data-act="pr-view" data-v="${v}">${t} <b>${n(c)}</b></button>`;
+    main.innerHTML = `
+    <div class="print-only" style="align-items:center;gap:16px;margin-bottom:16px"><img src="assets/association-logo.png" alt="" style="height:50px"><div><b>تقرير تنفيذ الممارسات — ${h(C.PROGRAM_NAME)}</b><div class="hint">${h(scopeTxt)} — ${h(kindTxt)} — ${fmtDate(todayStr())}</div></div></div>
+    <div class="head"><div class="grow"><h1>📋 تقرير تنفيذ الممارسات</h1><p>من نفّذ ومن لم ينفّذ، بالأسماء</p></div>
+      <label class="no-print">الأسبوع <select data-act-change="pr-week">${weeks.map(w => `<option value="${w.id}" ${String(w.id) === PG.pw ? 'selected' : ''}>الأسبوع ${w.id}${started(w) ? '' : ' (لم يبدأ)'}</option>`).join('')}<option value="all" ${PG.pw === 'all' ? 'selected' : ''}>كل الأسابيع حتى الآن</option></select></label>
+      <label class="no-print">الممارسة <select data-act-change="pr-kind"><option value="all">كل الممارسات</option>${KINDS.map(k => `<option value="${k.id}" ${k.id === PG.pk ? 'selected' : ''}>${k.name}</option>`).join('')}</select></label>
+      ${S.me.role === 'specialist' ? `<span class="no-print">${scopeToggle()}</span>` : ''}</div>
+    ${!wks.length ? `<div class="card empty">لم يبدأ أي أسبوع بعد.</div>` : `
+    ${single && !started(wk) ? `<div class="banner warn no-print"><b>هذا الأسبوع لم يبدأ بعد</b>لقاؤه يوم ${fmtDate(wk.meeting_date)}، والتقرير سيمتلئ بعد بدء الطلاب في الرفع.</div>` : ''}
+    <div class="kpis">
+      <div class="kpi hero"><b>${n(complete.length)}/${n(rows.length)}</b><span>أنجزوا ${PG.pk === 'all' ? 'كل الممارسات' : kinds[0].name}</span></div>
+      ${perKind.map(p => `<div class="kpi"><b>${n(p.done)}/${n(rows.length)}</b><span>${p.k.name}</span></div>`).join('')}
+    </div>
+    <div class="card">
+      <div class="pr-bar no-print"><div class="seg-tabs">${tab('missing', 'لم ينفّذوا', incomplete.length)}${tab('done', 'نفّذوا', complete.length)}${tab('all', 'الكل', rows.length)}</div>
+        <input type="search" id="pr-q" placeholder="🔍 ابحث بالاسم" value="${h(PG.term)}" autocomplete="off">
+        <div class="actions" style="margin:0"><button class="btn gold sm" data-act="pr-copy">📋 نسخ أسماء من لم ينفّذ</button><button class="btn ghost sm" data-act="csv">تصدير Excel</button><button class="btn ghost sm" data-act="print">طباعة / PDF</button></div></div>
+      <h2 class="print-only">${PG.pv === 'missing' ? 'لم ينفّذوا' : PG.pv === 'done' ? 'نفّذوا' : 'كل الطلاب'} (${n(shown.length)})</h2>
+      <div class="scroll"><table class="pr-table"><thead><tr><th>#</th><th>الطالب</th>${single ? kinds.map(k => `<th>${k.name}</th>`).join('') : '<th>المنفّذ</th><th>لم يُنفَّذ</th>'}${S.me.role !== 'specialist' || !S.onlyMine ? '<th>الأخصائي</th>' : ''}</tr></thead><tbody>
+      ${shown.length ? shown.map((r, i) => `<tr class="click" data-go="#/student/${r.s.id}${single ? '/' + wk.id : ''}"><td class="num">${n(i + 1)}</td><td><b>${h(r.s.full_name)}</b><div class="hint">${h(r.s.school || '')}${r.s.phone ? ' · ' + h(r.s.phone) : ''}</div></td>
+        ${single ? r.cells.map(c => `<td><span class="chip ${PST[c.st].c}">${PST[c.st].t}</span></td>`).join('') : `<td><span class="chip ${r.done === r.req ? 'approved' : 'none'}">${n(r.done)} من ${n(r.req)}</span></td><td class="miss-list">${h(missTxt(r)) || '<span class="hint">—</span>'}</td>`}
+        ${S.me.role !== 'specialist' || !S.onlyMine ? `<td>${h(staffName(r.s.specialist_id) || '—')}</td>` : ''}</tr>`).join('')
+        : `<tr><td colspan="6" class="empty">${PG.term ? 'لا يوجد طالب بهذا الاسم.' : PG.pv === 'missing' ? 'الجميع نفّذ ✅' : 'لا يوجد طلاب في هذه القائمة.'}</td></tr>`}
+      </tbody></table></div>
+      <p class="hint" style="margin:10px 0 0">«نفّذ» = أرسل الممارسة (مقبولة أو بانتظار المراجعة). أما «مطلوب إعادتها» و«مسودة لم تُرسل» فتُحسب ضمن «لم ينفّذ» حتى يُرسلها الطالب.</p>
+    </div>`}`;
+    const qi = $('pr-q');
+    if (qi) qi.addEventListener('input', e => { PG.term = e.target.value; const pos = e.target.selectionStart; drawPracticeReport(main); const n2 = $('pr-q'); if (n2) { n2.focus(); n2.setSelectionRange(pos, pos); } });
+}
+
 /* ---------- الأحداث ---------- */
 const ACTIONS = {
   logout: async () => { await sb.auth.signOut(); S.me = null; S.session = null; location.hash = '#/login'; route(); },
@@ -1533,6 +1628,8 @@ const ACTIONS = {
   'att-all': markAllPresent,
   'sheet-up': uploadSheet,
   csv: () => PG.csv && PG.csv(),
+  'pr-view': b => { PG.pv = b.dataset.v; drawPracticeReport($('main')); },
+  'pr-copy': async () => { const txt = PG.copy && PG.copy(); if (!txt) return; try { await navigator.clipboard.writeText(txt); toast('نُسخت الأسماء، الصقها في واتساب.'); } catch { const t = document.createElement('textarea'); t.value = txt; document.body.appendChild(t); t.select(); try { document.execCommand('copy'); toast('نُسخت الأسماء، الصقها في واتساب.'); } catch { toast('تعذّر النسخ.', true); } t.remove(); } },
   print: () => window.print(),
   photo: b => openPhoto(+b.dataset.i),
   'lb-close': closePhoto,
@@ -1613,11 +1710,13 @@ document.addEventListener('change', e => {
   if (el.dataset.f && el.closest('.head') && PG.f && ['week', 'kind', 'status'].includes(el.dataset.f) && !el.dataset.actChange) { PG.f[el.dataset.f] = el.value; renderReview(); return; }
   const a = el.dataset.actChange; if (!a) return;
   if (a === 'scope') { S.onlyMine = el.checked; route(); }
+  else if (a === 'pr-week') { PG.pw = el.value; renderPracticeReport(); }
+  else if (a === 'pr-kind') { PG.pk = el.value; drawPracticeReport($('main')); }
   else if (a === 'att-week') location.hash = '#/attendance/' + el.value;
   else if (a === 'mode') { const f = el.value === 'file'; $('pt-' + el.dataset.k).hidden = f; $('pf-' + el.dataset.k).hidden = !f; }
   else if (a === 'xl-file') { const f = el.files[0]; if (f) { PG.xlSpec = val('nu-bulk-spec') || null; readExcel(f).then(rows => { PG.preview = rows; PG.bulk = null; renderUsers().then(() => { const c = $('xl-prev'); if (c) c.scrollIntoView({ behavior: 'smooth' }); }); }).catch(e => { console.error(e); toast('تعذّرت قراءة الملف. تأكد أنه ملف Excel صحيح.', true); }); } }
   else if (a === 'sel') { el.checked ? PG.sel.add(el.dataset.sid) : PG.sel.delete(el.dataset.sid); PG.coTime = val('co-time'); drawAttendance($('main'), S.weeks); }
-  else if (a === 'sel-all') { PG.coTime = val('co-time'); PG.sel = new Set(el.checked ? PG.list.filter(x => PG.att[x.id] === 'present').map(x => x.id) : []); drawAttendance($('main'), S.weeks); }
+  else if (a === 'sel-all') { PG.coTime = val('co-time'); PG.sel = new Set(el.checked ? PG.list.filter(x => PG.att[x.id] === 'present' && matchName(x, PG.q)).map(x => x.id) : []); drawAttendance($('main'), S.weeks); }
   else if (a === 'att-pts') { const v = +el.value, sid = el.dataset.sid; busy(el, async () => { await q(sb.from('attendance').update({ points: v, early: v === 30 }).eq('week_id', PG.w.id).eq('student_id', sid)); Object.assign(PG.meth[sid], { points: v, early: v === 30 }); drawAttendance($('main'), S.weeks); }, 'عُدّلت درجة الحضور.'); }
   else if (a === 'media-week') { PG.mw = el.value; renderMedia(); }
   else if (a === 'post-week') { PG.pw = el.value; renderPosts(); }
@@ -1666,6 +1765,7 @@ async function route() {
     case 'students': return renderStudents();
     case 'student': return parts[1] ? renderStudentAsStaff(parts[1], parts[2]) : renderStudents();
     case 'reports': return renderReports();
+    case 'practices': return renderPracticeReport();
     case 'leaders': return renderLeaders();
     case 'users': return role === 'admin' ? renderUsers() : renderStaffHome();
     case 'weeks': return role === 'admin' ? renderWeeksAdmin() : renderStaffHome();
