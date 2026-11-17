@@ -66,6 +66,7 @@ function errMsg(e) {
   if (/row-level security|permission|not authorized/i.test(m)) return 'لا تملك صلاحية تنفيذ هذا الإجراء.';
   if (/exceeded the maximum allowed size|Payload too large/i.test(m)) return 'الملف أكبر من 10 ميجابايت.';
   if (/Failed to fetch|NetworkError/i.test(m)) return 'تعذّر الاتصال. تحقق من الإنترنت ثم أعد المحاولة.';
+  if (/[\u0600-\u06FF]/.test(m)) return m;
   return 'حدث خطأ: ' + (m || 'غير معروف');
 }
 async function q(p) { const { data, error } = await p; if (error) throw error; return data; }
@@ -511,7 +512,7 @@ function fieldEdit(kind, f, v) {
   if (f.type === 'gauge') return `<div class="field full">${lab}<div class="gauge">${[...Array(11).keys()].map(x => `<label><input type="radio" name="${id}" value="${x}" ${v !== undefined && v !== null && v !== '' && +v === x ? 'checked' : ''}><span>${x}</span></label>`).join('')}</div><div class="gauge-ends"><span>${h(f.min)}</span><span>${h(f.max)}</span></div></div>`;
   if (f.type === 'photos') { const arr = PG.ph[phKey(kind, f.id)] || [];
     return `<div class="field full">${lab}<div class="fv-photos">${arr.map((p, i) => `<div class="ph-item"><img data-path="${h(p.path)}" alt=""><button class="ph-rm" data-act="ph-rm" data-key="${phKey(kind, f.id)}" data-path="${h(p.path)}" aria-label="حذف الصورة">✕</button></div>`).join('')}</div>
-      ${arr.length < f.max ? `<input type="file" id="${id}-file" accept="image/*" multiple><span class="hint">حتى ${n(f.max)} صور، وتُصغَّر تلقائيًا.</span>` : ''}</div>`; }
+      ${arr.length < f.max ? `<input type="file" id="${id}-file" accept="image/*,.heic,.heif" multiple><span class="hint">حتى ${n(f.max)} صور، وتُصغَّر تلقائيًا.</span>` : ''}</div>`; }
   return `<label class="field">${lab}<input type="text" id="${id}" value="${h(v || '')}" maxlength="300" placeholder="${h(f.ph || '')}"></label>`;
 }
 function formEdit(kind, data) {
@@ -526,7 +527,7 @@ function formView(kind, data) {
       if (v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length)) return '';
       if (f.type === 'list') return `<div class="fv-row full"><span>${h(f.label)}</span><ol>${v.map(x => `<li>${h(x)}</li>`).join('')}</ol></div>`;
       if (f.type === 'gauge') return `<div class="fv-row full"><span>${h(f.label)}</span><div class="fv-gauge"><span class="meter"><i style="width:${+v * 10}%"></i></span><b>${n(+v)} من 10</b></div></div>`;
-      if (f.type === 'photos') return `<div class="fv-row full"><span>${h(f.label)}</span><div class="fv-photos">${v.map(p => `<button class="ph-view" data-act="ph-open"><img data-path="${h(p.path)}" alt=""></button>`).join('')}</div></div>`;
+      if (f.type === 'photos') return `<div class="fv-row full"><span>${h(f.label)}</span><div class="fv-photos">${v.map(p => `<button class="ph-view" data-act="ph-open"><img data-path="${h(p.path)}" alt="" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'ph-bad',textContent:'⚠️ صيغة غير مدعومة'}))"></button>`).join('')}</div></div>`;
       if (f.type === 'date') return `<div class="fv-row"><span>${h(f.label)}</span><p>${fmtDate(v)}</p></div>`;
       return `<div class="fv-row ${f.type === 'area' ? 'full' : ''}"><span>${h(f.label)}</span><p>${h(v)}</p></div>`; }).join('');
     return rows ? `<div class="fv-sec"><h4>${h(sec.title)}</h4><div class="fv-grid">${rows}</div></div>` : '';
@@ -634,7 +635,7 @@ async function submitPractice(btn) {
       const inp = $(`fm-${kind}-${f.id}-file`); if (!inp) continue;
       let i = 0;
       for (const f0 of inp.files) {
-        i++; const img = await compressImage(f0);
+        i++; const img = await prepareImage(f0);
         const path = `${S.me.id}/w${wid}-${kind}-${f.id}-${Date.now()}-${i}.${safeExt(img.name)}`;
         await q(sb.storage.from('submissions').upload(path, img, { contentType: img.type || undefined }));
         data[f.id].push({ path, name: f0.name.slice(0, 80) });
@@ -642,7 +643,7 @@ async function submitPractice(btn) {
     }
     const row = { student_id: S.me.id, week_id: wid, kind, data, content: formSummary(kind, data) || '—', self_rating: rating || null, link: null, status: draft ? 'draft' : 'pending' };
     if (att) {
-      const f = /^image\//.test(att.type) ? await compressImage(att) : att;
+      const f = /^image\//.test(att.type) || isHeic(att) ? await prepareImage(att) : att;
       const path = `${S.me.id}/w${wid}-${kind}-${Date.now()}.${safeExt(f.name)}`;
       await q(sb.storage.from('submissions').upload(path, f, { contentType: f.type || undefined }));
       Object.assign(row, { file_path: path, file_name: att.name.slice(0, 120) });
@@ -1041,7 +1042,7 @@ async function renderWeeklyReport() {
         ${top.length ? `<div class="wr-top">${top.map((r, i) => `<div class="wr-top-i ${i === 0 ? 'first' : ''}"><span>${n(i + 1)}</span><div><b>${h(r.s.full_name)}</b><small>${h(r.s.school || '')}</small></div><em>${n(r.t)}<small> من ${WEEK_MAX}</small></em></div>`).join('')}</div>` : '<p class="hint">لا توجد درجات لهذا الأسبوع بعد.</p>'}</section>
 
       <section class="wr-sec"><h2><span>5</span>صور اللقاء</h2>
-        ${photos.length ? `<div class="wr-photos">${photos.slice(0, 12).map(p => urls[p.file_path] ? `<figure><img src="${h(urls[p.file_path])}" alt="${h(p.title || 'صورة من اللقاء')}" loading="eager">${p.title ? `<figcaption>${h(p.title)}</figcaption>` : ''}</figure>` : '').join('')}</div>
+        ${photos.length ? `<div class="wr-photos">${photos.slice(0, 12).map(p => urls[p.file_path] ? `<figure><img src="${h(urls[p.file_path])}" alt="${h(p.title || 'صورة من اللقاء')}" loading="eager" onerror="this.closest('figure').remove()">${p.title ? `<figcaption>${h(p.title)}</figcaption>` : ''}</figure>` : '').join('')}</div>
           ${photos.length > 12 ? `<p class="hint">وأكثر: ${n(photos.length - 12)} صورة أخرى في صفحة الوسائط.</p>` : ''}` : '<p class="hint">لم تُرفع صور لهذا الأسبوع. ارفعها من صفحة 📷 الوسائط، واختر الأسبوع.</p>'}
         ${vids.length ? `<p class="hint" style="margin-top:8px">🎬 مقاطع: ${n(vids.length)}${vids.filter(v => v.title).length ? ' — ' + vids.filter(v => v.title).map(v => h(v.title)).join('، ') : ''}</p>` : ''}</section>
 
@@ -1343,6 +1344,29 @@ async function renderSpecialists() {
 }
 
 /* ---------- الوسائط ---------- */
+const isHeic = f => /image\/hei[cf]/i.test(f.type || '') || /\.(heic|heif)$/i.test(f.name || '');
+const WEB_IMG = /^image\/(jpeg|png|webp|gif|avif|bmp)$/i;
+let heicLib = null;
+async function heicToJpeg(file) {
+  const base = String(file.name || 'photo').replace(/\.\w+$/, '');
+  if (window.createImageBitmap) {
+    try {
+      const bmp = await createImageBitmap(file);
+      const c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height; c.getContext('2d').drawImage(bmp, 0, 0);
+      const b = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.88));
+      if (b) return new File([b], base + '.jpg', { type: 'image/jpeg' });
+    } catch { /* المتصفح لا يقرأ HEIC، نستخدم المحوّل */ }
+  }
+  heicLib = heicLib || new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js'; sc.onload = () => res(window.heic2any); sc.onerror = () => { heicLib = null; rej(new Error('heic lib')); }; document.head.appendChild(sc); });
+  const out = await (await heicLib)({ blob: file, toType: 'image/jpeg', quality: 0.88 });
+  return new File([Array.isArray(out) ? out[0] : out], base + '.jpg', { type: 'image/jpeg' });
+}
+async function prepareImage(file, max, quality) {
+  let f = file;
+  if (isHeic(f)) { try { f = await heicToJpeg(f); } catch { throw new Error(`تعذّر تحويل الصورة «${file.name}» من صيغة HEIC. حوّلها إلى JPG ثم ارفعها.`); } }
+  if (!WEB_IMG.test(f.type || '')) throw new Error(`صيغة الصورة «${file.name}» لا تعرضها المتصفحات. ارفعها بصيغة JPG أو PNG.`);
+  return compressImage(f, max, quality);
+}
 async function compressImage(file, max = 1600, quality = 0.82) {
   if (!/^image\/(jpeg|png|webp)$/i.test(file.type) || !window.createImageBitmap) return file;
   try {
@@ -1354,6 +1378,30 @@ async function compressImage(file, max = 1600, quality = 0.82) {
     return blob && blob.size < file.size ? new File([blob], file.name.replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' }) : file;
   } catch { return file; }
 }
+function mediaImgFail(img, id) {
+  const btn = img.closest('.m-thumb'); if (!btn || btn.classList.contains('bad')) return;
+  btn.classList.add('bad');
+  const it = (PG.items || []).find(x => x.id === id);
+  const ext = it ? safeExt(it.file_name || it.file_path).toUpperCase() : '';
+  img.remove();
+  btn.insertAdjacentHTML('beforeend', `<span class="m-bad"><b>⚠️ لا يمكن عرض الصورة</b><small>${ext ? 'الصيغة: ' + h(ext) : ''}</small></span>`);
+  PG.bad = PG.bad || new Set(); PG.bad.add(id);
+  const box = $('media-bad'); if (!box) return;
+  box.hidden = false;
+  box.innerHTML = `<b>${n(PG.bad.size)} ${PG.bad.size === 1 ? 'صورة لا تظهر' : 'صور لا تظهر'}</b>غالبًا لأنها بصيغة HEIC من الآيفون، والمتصفحات لا تعرضها.${isStaff() ? ` <button class="btn gold sm" data-act="media-fix" style="margin-inline-start:8px">🔧 إصلاحها الآن</button>` : ''}`;
+}
+async function fixMediaItem(it) {
+  const url = PG.urls[it.file_path]; if (!url) throw new Error('no url');
+  const res = await fetch(url); if (!res.ok) throw new Error('download');
+  const blob = await res.blob();
+  const src = new File([blob], it.file_name || it.file_path.split('/').pop(), { type: blob.type || '' });
+  const jpg = await compressImage(await heicToJpeg(src));
+  const path = `${it.week_id || 'general'}/${Date.now()}-fix.jpg`;
+  await q(sb.storage.from('media').upload(path, jpg, { contentType: 'image/jpeg' }));
+  await q(sb.from('media_items').insert({ week_id: it.week_id, title: it.title, kind: 'photo', file_path: path, file_name: jpg.name.slice(0, 120), uploaded_by: S.me.id }));
+  try { await q(sb.from('media_items').delete().eq('id', it.id)); await sb.storage.from('media').remove([it.file_path]); } catch (e) { console.warn('old item kept', e); }
+}
+
 async function renderMedia() {
   const main = shell('media');
   try {
@@ -1365,7 +1413,7 @@ async function renderMedia() {
     const paths = items.filter(i => i.file_path).map(i => i.file_path);
     const urls = {};
     if (paths.length) { const r = await q(sb.storage.from('media').createSignedUrls(paths, 3600)); (r || []).forEach(o => { if (o.signedUrl) urls[o.path] = o.signedUrl; }); }
-    PG = { ...PG, items, urls, photoList: items.filter(i => i.kind === 'photo' && urls[i.file_path]).map(i => urls[i.file_path]), reload: renderMedia };
+    PG = { ...PG, bad: new Set(), items, urls, photoList: items.filter(i => i.kind === 'photo' && urls[i.file_path]).map(i => urls[i.file_path]), reload: renderMedia };
     const canAdd = isStaff();
     const wName = id => { const w = weeks.find(z => z.id === id); return w ? `الأسبوع ${w.id}` : 'عام'; };
     const nP = items.filter(i => i.kind === 'photo').length, nV = items.length - nP;
@@ -1373,15 +1421,16 @@ async function renderMedia() {
     <div class="head"><div class="grow"><h1>📷 الوسائط</h1><p>صور ومقاطع لقاءات البرنامج وزياراته</p></div>
       <label>الأسبوع <select data-act-change="media-week"><option value="all">الكل</option>${weeks.map(w => `<option value="${w.id}" ${String(w.id) === PG.mw ? 'selected' : ''}>الأسبوع ${w.id}</option>`).join('')}</select></label></div>
     <div class="kpis"><div class="kpi hero"><b>${n(nP)}</b><span>صورة</span></div><div class="kpi"><b>${n(nV)}</b><span>مقطع</span></div></div>
+    <div id="media-bad" class="banner warn" hidden></div>
     ${canAdd ? `<div class="card"><h2>إضافة وسائط</h2><p class="sub">الصور تُصغَّر تلقائيًا قبل الرفع لتوفير المساحة. المقاطع حتى 50 ميجابايت، والأفضل رفع المقاطع الطويلة على يوتيوب ووضع رابطها هنا.</p>
       <div class="grid g3">
         <label class="field"><span>الأسبوع</span><select id="m-week"><option value="">عام</option>${weeks.map(w => `<option value="${w.id}" ${String(w.id) === PG.mw ? 'selected' : ''}>الأسبوع ${w.id}: ${h(w.title)}</option>`).join('')}</select></label>
         <label class="field"><span>العنوان (اختياري)</span><input type="text" id="m-title" maxlength="120" placeholder="مثال: زيارة قيادة الذات"></label>
-        <label class="field"><span>صور أو مقاطع</span><input type="file" id="m-files" multiple accept="image/*,video/*"></label>
+        <label class="field"><span>صور أو مقاطع</span><input type="file" id="m-files" multiple accept="image/*,.heic,.heif,video/*"></label>
       </div>
       <div class="actions"><input type="url" id="m-url" dir="ltr" placeholder="أو رابط مقطع (يوتيوب / درايف)" style="flex:1;min-width:220px"><button class="btn" data-act="media-up">رفع</button></div></div>` : ''}
     ${items.length ? `<div class="media-grid">${items.map((it, i) => `<figure class="m-item">
-        <button class="m-thumb ${it.kind}" data-act="media-open" data-i="${i}" aria-label="عرض">${it.kind === 'photo' && urls[it.file_path] ? `<img src="${h(urls[it.file_path])}" alt="" loading="lazy">` : `<span class="m-ico">${it.kind === 'video' ? '▶' : '🔗'}</span>`}</button>
+        <button class="m-thumb ${it.kind}" data-act="media-open" data-i="${i}" aria-label="عرض">${it.kind === 'photo' && urls[it.file_path] ? `<img src="${h(urls[it.file_path])}" alt="" loading="lazy" onerror="mediaImgFail(this, '${it.id}')">` : `<span class="m-ico">${it.kind === 'video' ? '▶' : '🔗'}</span>`}</button>
         <figcaption><b>${h(it.title || (it.kind === 'photo' ? 'صورة' : it.kind === 'video' ? 'مقطع' : 'رابط مقطع'))}</b><span class="hint">${wName(it.week_id)}</span>
         ${canAdd && (S.me.role === 'admin' || it.uploaded_by === S.me.id) ? `<button class="linkish m-del" data-act="media-del" data-id="${it.id}">حذف</button>` : ''}</figcaption></figure>`).join('')}</div>`
       : `<div class="card empty">لا توجد وسائط ${PG.mw === 'all' ? 'بعد' : 'لهذا الأسبوع'}.</div>`}`;
@@ -1398,7 +1447,7 @@ async function mediaUpload(btn) {
     for (const f0 of files) {
       i++; btn.textContent = `جارٍ الرفع ${n(i)} من ${n(files.length)}…`;
       const isVid = /^video\//.test(f0.type);
-      const f = isVid ? f0 : await compressImage(f0);
+      const f = isVid ? f0 : await prepareImage(f0);
       const path = `${week || 'general'}/${Date.now()}-${i}.${safeExt(f.name)}`;
       await q(sb.storage.from('media').upload(path, f, { contentType: f.type || undefined }));
       await q(sb.from('media_items').insert({ week_id: week, title, kind: isVid ? 'video' : 'photo', file_path: path, file_name: f0.name.slice(0, 120), uploaded_by: S.me.id }));
@@ -1733,7 +1782,16 @@ const ACTIONS = {
   'pp-toggle': b => busy(b, async () => { const f = b.dataset.f; await q(sb.from('settings').update({ [f]: b.dataset.v === '1' }).eq('id', 1)); await renderImpact(); }, 'تم التحديث.'),
   'media-up': mediaUpload,
   'media-del': b => { if (!armed(b, 'تأكيد الحذف')) return; busy(b, async () => { const it = (PG.items || []).find(x => x.id === b.dataset.id); await q(sb.from('media_items').delete().eq('id', b.dataset.id)); if (it && it.file_path) await sb.storage.from('media').remove([it.file_path]); await renderMedia(); }, 'حُذف.'); },
-  'media-open': b => { const it = PG.items[+b.dataset.i]; if (it.kind === 'photo') openPhoto(PG.photoList.indexOf(PG.urls[it.file_path]), PG.photoList); else window.open(it.kind === 'link' ? it.url : PG.urls[it.file_path], '_blank', 'noopener'); },
+  'media-fix': async b => {
+    const ids = [...(PG.bad || [])]; if (!ids.length) return;
+    let ok = 0, bad = 0;
+    await busy(b, async () => {
+      for (const id of ids) { const it = PG.items.find(x => x.id === id); if (!it) continue; b.textContent = `جارٍ الإصلاح ${n(ok + bad + 1)} من ${n(ids.length)}…`; try { await fixMediaItem(it); ok++; } catch (e) { console.error(e); bad++; } }
+      PG.bad = new Set(); await renderMedia();
+    });
+    toast(bad ? `أُصلحت ${n(ok)} صورة، وتعذّر إصلاح ${n(bad)}. احذفها وارفعها بصيغة JPG.` : `أُصلحت ${n(ok)} صورة ✅`, !!bad);
+  },
+  'media-open': b => { if (b.classList.contains('bad')) return; const it = PG.items[+b.dataset.i]; if (it.kind === 'photo') openPhoto(PG.photoList.indexOf(PG.urls[it.file_path]), PG.photoList); else window.open(it.kind === 'link' ? it.url : PG.urls[it.file_path], '_blank', 'noopener'); },
   'post-add': postAdd,
   'post-del': b => { if (!armed(b, 'تأكيد الحذف')) return; busy(b, async () => { await q(sb.from('media_posts').delete().eq('id', b.dataset.id)); await renderPosts(); }, 'حُذف.'); },
   'set-here': setHere,
