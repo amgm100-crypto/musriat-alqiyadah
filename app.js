@@ -512,7 +512,7 @@ function fieldEdit(kind, f, v) {
   if (f.type === 'gauge') return `<div class="field full">${lab}<div class="gauge">${[...Array(11).keys()].map(x => `<label><input type="radio" name="${id}" value="${x}" ${v !== undefined && v !== null && v !== '' && +v === x ? 'checked' : ''}><span>${x}</span></label>`).join('')}</div><div class="gauge-ends"><span>${h(f.min)}</span><span>${h(f.max)}</span></div></div>`;
   if (f.type === 'photos') { const arr = PG.ph[phKey(kind, f.id)] || [];
     return `<div class="field full">${lab}<div class="fv-photos">${arr.map((p, i) => `<div class="ph-item"><img data-path="${h(p.path)}" alt=""><button class="ph-rm" data-act="ph-rm" data-key="${phKey(kind, f.id)}" data-path="${h(p.path)}" aria-label="حذف الصورة">✕</button></div>`).join('')}</div>
-      ${arr.length < f.max ? `<input type="file" id="${id}-file" accept="image/*,.heic,.heif" multiple><span class="hint">حتى ${n(f.max)} صور، وتُصغَّر تلقائيًا.</span>` : ''}</div>`; }
+      ${arr.length < f.max ? `<input type="file" id="${id}-file" accept="image/*,.heic,.heif,.cr2,.cr3,.nef,.arw,.dng" multiple><span class="hint">حتى ${n(f.max)} صور، وتُصغَّر تلقائيًا.</span>` : ''}</div>`; }
   return `<label class="field">${lab}<input type="text" id="${id}" value="${h(v || '')}" maxlength="300" placeholder="${h(f.ph || '')}"></label>`;
 }
 function formEdit(kind, data) {
@@ -1361,9 +1361,69 @@ async function heicToJpeg(file) {
   const out = await (await heicLib)({ blob: file, toType: 'image/jpeg', quality: 0.88 });
   return new File([Array.isArray(out) ? out[0] : out], base + '.jpg', { type: 'image/jpeg' });
 }
+const RAW_EXT = /\.(cr2|cr3|crw|nef|nrw|arw|srf|sr2|dng|orf|rw2|raf|pef|srw|3fr|erf|kdc|mrw|x3f)$/i;
+const isRaw = f => RAW_EXT.test(f.name || '') || /image\/x-(canon|nikon|sony|adobe|olympus|panasonic|fuji|pentax|samsung)/i.test(f.type || '');
+function rawPreviews(buf) {
+  const v = new DataView(buf), u = new Uint8Array(buf), out = [];
+  const isJpg = (o, l) => l > 1000 && o > 0 && o + l <= u.length && u[o] === 0xFF && u[o + 1] === 0xD8;
+  let orient = 1;
+  const bo = v.getUint16(0);
+  if (bo === 0x4949 || bo === 0x4D4D) {
+    const le = bo === 0x4949, g16 = o => v.getUint16(o, le), g32 = o => v.getUint32(o, le);
+    const seen = new Set(), queue = [g32(4)];
+    while (queue.length && seen.size < 40) {
+      const ifd = queue.shift(); if (!ifd || ifd + 2 > u.length || seen.has(ifd)) continue; seen.add(ifd);
+      const cnt = g16(ifd); if (cnt > 500) continue;
+      const t = {};
+      for (let i = 0; i < cnt; i++) {
+        const e = ifd + 2 + i * 12; if (e + 12 > u.length) break;
+        const tag = g16(e), type = g16(e + 2), num = g32(e + 4);
+        const val = type === 3 && num === 1 ? g16(e + 8) : g32(e + 8);
+        t[tag] = { val, num, type, at: e + 8 };
+      }
+      if (seen.size === 1 && t[0x0112]) orient = t[0x0112].val;
+      if (t[0x0201] && t[0x0202]) { const o = t[0x0201].val, l = t[0x0202].val; if (isJpg(o, l)) out.push([o, l]); }
+      if (t[0x0111] && t[0x0117] && t[0x0111].num === 1) { const o = t[0x0111].val, l = t[0x0117].val; if (isJpg(o, l)) out.push([o, l]); }
+      if (t[0x014A]) { const n = t[0x014A].num; if (n === 1) queue.push(t[0x014A].val); else for (let k = 0; k < Math.min(n, 8); k++) queue.push(g32(t[0x014A].val + k * 4)); }
+      const nx = ifd + 2 + cnt * 12; if (nx + 4 <= u.length) queue.push(g32(nx));
+    }
+  }
+  if (!out.length) { // ملفات ليست بصيغة TIFF (مثل CR3): نبحث عن بداية صور JPEG داخل الملف
+    for (let i = 0; i < u.length - 3 && out.length < 12; i++) if (u[i] === 0xFF && u[i + 1] === 0xD8 && u[i + 2] === 0xFF && (u[i + 3] & 0xF0) === 0xE0 || (u[i] === 0xFF && u[i + 1] === 0xD8 && u[i + 2] === 0xFF && u[i + 3] === 0xDB)) out.push([i, u.length - i]);
+  }
+  return { list: out, orient };
+}
+async function rawToJpeg(file) {
+  const base = String(file.name || 'photo').replace(/\.\w+$/, '').replace(/\s*\(\d+\)$/, '');
+  const buf = await file.arrayBuffer();
+  const { list, orient } = rawPreviews(buf);
+  let best = null;
+  for (const [o, l] of list.sort((a, b) => b[1] - a[1]).slice(0, 6)) {
+    try { const bmp = await createImageBitmap(new Blob([new Uint8Array(buf, o, l)], { type: 'image/jpeg' }), { imageOrientation: 'none' });
+      if (!best || bmp.width * bmp.height > best.width * best.height) best = bmp;
+      if (best.width >= 1600) break; } catch { /* نجرّب الصورة التالية */ }
+  }
+  if (!best) throw new Error('no preview');
+  const max = 2000, k = Math.min(1, max / Math.max(best.width, best.height));
+  const w = Math.round(best.width * k), hh = Math.round(best.height * k), rot = orient === 6 || orient === 8;
+  const c = document.createElement('canvas'); c.width = rot ? hh : w; c.height = rot ? w : hh;
+  const x = c.getContext('2d');
+  if (orient === 3) { x.translate(w, hh); x.rotate(Math.PI); }
+  else if (orient === 6) { x.translate(hh, 0); x.rotate(Math.PI / 2); }
+  else if (orient === 8) { x.translate(0, w); x.rotate(-Math.PI / 2); }
+  x.drawImage(best, 0, 0, w, hh);
+  const b = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.86));
+  if (!b) throw new Error('encode');
+  return new File([b], base + '.jpg', { type: 'image/jpeg' });
+}
+async function toBrowserImage(file) {
+  if (isRaw(file)) return rawToJpeg(file);
+  return heicToJpeg(file);
+}
 async function prepareImage(file, max, quality) {
   let f = file;
-  if (isHeic(f)) { try { f = await heicToJpeg(f); } catch { throw new Error(`تعذّر تحويل الصورة «${file.name}» من صيغة HEIC. حوّلها إلى JPG ثم ارفعها.`); } }
+  if (isRaw(f)) { try { f = await rawToJpeg(f); } catch { throw new Error(`تعذّر استخراج الصورة من ملف الكاميرا «${file.name}». صدّرها بصيغة JPG ثم ارفعها.`); } }
+  else if (isHeic(f)) { try { f = await heicToJpeg(f); } catch { throw new Error(`تعذّر تحويل الصورة «${file.name}» من صيغة HEIC. حوّلها إلى JPG ثم ارفعها.`); } }
   if (!WEB_IMG.test(f.type || '')) throw new Error(`صيغة الصورة «${file.name}» لا تعرضها المتصفحات. ارفعها بصيغة JPG أو PNG.`);
   return compressImage(f, max, quality);
 }
@@ -1388,14 +1448,14 @@ function mediaImgFail(img, id) {
   PG.bad = PG.bad || new Set(); PG.bad.add(id);
   const box = $('media-bad'); if (!box) return;
   box.hidden = false;
-  box.innerHTML = `<b>${n(PG.bad.size)} ${PG.bad.size === 1 ? 'صورة لا تظهر' : 'صور لا تظهر'}</b>غالبًا لأنها بصيغة HEIC من الآيفون، والمتصفحات لا تعرضها.${isStaff() ? ` <button class="btn gold sm" data-act="media-fix" style="margin-inline-start:8px">🔧 إصلاحها الآن</button>` : ''}`;
+  box.innerHTML = `<b>${n(PG.bad.size)} ${PG.bad.size === 1 ? 'صورة لا تظهر' : 'صور لا تظهر'}</b>لأن صيغتها لا تعرضها المتصفحات، مثل صور الكاميرا الاحترافية (CR2) أو صور الآيفون (HEIC).${isStaff() ? ` <button class="btn gold sm" data-act="media-fix" style="margin-inline-start:8px">🔧 إصلاحها الآن</button>` : ''}`;
 }
 async function fixMediaItem(it) {
   const url = PG.urls[it.file_path]; if (!url) throw new Error('no url');
   const res = await fetch(url); if (!res.ok) throw new Error('download');
   const blob = await res.blob();
   const src = new File([blob], it.file_name || it.file_path.split('/').pop(), { type: blob.type || '' });
-  const jpg = await compressImage(await heicToJpeg(src));
+  const jpg = await compressImage(await toBrowserImage(src));
   const path = `${it.week_id || 'general'}/${Date.now()}-fix.jpg`;
   await q(sb.storage.from('media').upload(path, jpg, { contentType: 'image/jpeg' }));
   await q(sb.from('media_items').insert({ week_id: it.week_id, title: it.title, kind: 'photo', file_path: path, file_name: jpg.name.slice(0, 120), uploaded_by: S.me.id }));
@@ -1426,7 +1486,7 @@ async function renderMedia() {
       <div class="grid g3">
         <label class="field"><span>الأسبوع</span><select id="m-week"><option value="">عام</option>${weeks.map(w => `<option value="${w.id}" ${String(w.id) === PG.mw ? 'selected' : ''}>الأسبوع ${w.id}: ${h(w.title)}</option>`).join('')}</select></label>
         <label class="field"><span>العنوان (اختياري)</span><input type="text" id="m-title" maxlength="120" placeholder="مثال: زيارة قيادة الذات"></label>
-        <label class="field"><span>صور أو مقاطع</span><input type="file" id="m-files" multiple accept="image/*,.heic,.heif,video/*"></label>
+        <label class="field"><span>صور أو مقاطع</span><input type="file" id="m-files" multiple accept="image/*,.heic,.heif,.cr2,.cr3,.nef,.arw,.dng,video/*"></label>
       </div>
       <div class="actions"><input type="url" id="m-url" dir="ltr" placeholder="أو رابط مقطع (يوتيوب / درايف)" style="flex:1;min-width:220px"><button class="btn" data-act="media-up">رفع</button></div></div>` : ''}
     ${items.length ? `<div class="media-grid">${items.map((it, i) => `<figure class="m-item">
@@ -1446,7 +1506,7 @@ async function mediaUpload(btn) {
     let i = 0;
     for (const f0 of files) {
       i++; btn.textContent = `جارٍ الرفع ${n(i)} من ${n(files.length)}…`;
-      const isVid = /^video\//.test(f0.type);
+      const isVid = /^video\//.test(f0.type) && !isRaw(f0);
       const f = isVid ? f0 : await prepareImage(f0);
       const path = `${week || 'general'}/${Date.now()}-${i}.${safeExt(f.name)}`;
       await q(sb.storage.from('media').upload(path, f, { contentType: f.type || undefined }));
